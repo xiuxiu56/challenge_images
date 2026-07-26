@@ -153,3 +153,45 @@ def test_summary_reports_best_epoch(tmp_path):
     )
     assert "轮次=4" in tracker.summary()
     assert "1.0000" in tracker.summary()
+
+
+def test_final_validation_is_not_recorded(tmp_path):
+    """训练后的 final_eval 也会触发回调，但必须跳过。
+
+    此时 Ultralytics 验证的是 best.pt，而 last.pt 是最后一轮的权重。
+    记录下来会把 best.pt 的指标配到 last.pt 的权重上——50 轮训练配
+    patience 时两者几乎必然不同。
+    """
+    run_dir = _make_run(tmp_path)
+    tracker = MacroF1Tracker()
+
+    # 正常的第 3 轮（共 3 轮）
+    trainer = _FakeTrainer(
+        run_dir, _FakeValidator([[0, 0, 1]], [[[0, 1], [0, 1], [0, 1]]]), epoch=2
+    )
+    trainer.epochs = 3
+    tracker.evaluate(trainer)
+    assert tracker.best_epoch == 3
+    assert len(tracker.history) == 1
+
+    # final_eval：epoch 已超出总轮数，且此刻 last.pt 内容已变
+    (run_dir / "weights" / "last.pt").write_bytes(b"last-epoch-weights")
+    final = _FakeTrainer(
+        run_dir, _FakeValidator([[0, 0, 1]], [[[0, 1], [0, 1], [1, 0]]]), epoch=3
+    )
+    final.epochs = 3
+    assert tracker.evaluate(final) is None
+    # 历史与最佳轮次都不受影响。
+    assert len(tracker.history) == 1
+    assert tracker.best_epoch == 3
+    # 最佳权重仍是第 3 轮当时的内容，没有被 last.pt 覆盖。
+    assert (run_dir / "weights" / BEST_MACRO_F1_WEIGHT).read_bytes() == b"weights-v1"
+
+
+def test_epochs_attribute_absent_still_records(tmp_path):
+    """拿不到总轮数时保持原行为，不因缺少属性而静默失效。"""
+    run_dir = _make_run(tmp_path)
+    tracker = MacroF1Tracker()
+    trainer = _FakeTrainer(run_dir, _FakeValidator([[0, 1]], [[[0, 1], [1, 0]]]), epoch=0)
+    assert not hasattr(trainer, "epochs")
+    assert tracker.evaluate(trainer) == 1.0

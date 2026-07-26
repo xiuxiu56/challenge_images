@@ -138,10 +138,16 @@ class MacroF1Tracker:
         predictions = _top1_predictions(getattr(validator, "pred", None))
         if not truths or len(truths) != len(predictions):
             return None
+        epoch = int(getattr(trainer, "epoch", 0)) + 1
+        total_epochs = int(getattr(trainer, "epochs", 0) or 0)
+        if total_epochs and epoch > total_epochs:
+            # 训练结束后 Ultralytics 会用 best.pt 再验证一次，同样触发本回调。
+            # 此时验证的是 best.pt，而 last.pt 是最后一轮的权重，两者未必相同：
+            # 记录下来会把 best.pt 的指标配到 last.pt 的权重上。
+            return None
+
         names = {int(k): str(v) for k, v in (getattr(validator, "names", None) or {}).items()}
         macro, scores = macro_f1_from_counts(truths, predictions, names)
-
-        epoch = int(getattr(trainer, "epoch", 0)) + 1
         metrics = getattr(trainer, "metrics", None) or {}
         record: dict[str, Any] = {
             "轮次": epoch,

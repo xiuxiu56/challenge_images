@@ -404,7 +404,9 @@ def menu_train(smoke: bool = False) -> None:
         return
     # 数据目录不再随 imgsz 变化；运行名带上分辨率便于对照。
     selected_profile = profile if smoke else training_profile_for_model(model, imgsz=imgsz)
-    recommended_data = DATA_DIR if smoke else Path(str(selected_profile["data"]))
+    # 冒烟与正式训练使用同一份数据：冒烟的目的正是提前发现数据与管线问题，
+    # 换一份数据反而会漏掉真正会出问题的地方。
+    recommended_data = Path(str(selected_profile["data"]))
     if not smoke:
         print(f"\n已根据输入尺寸 imgsz={imgsz} 生成本次训练配置：")
         print(f"  默认数据目录：{recommended_data}")
