@@ -22,6 +22,8 @@ from challenge_images.config import (
     DEFAULT_TRAIN,
     DEFAULT_TRAIN_IMGSZ,
     STRATIFIED_DATA_DIR,
+    ONLINE_CAPTURE_DIR,
+    SEGMENTATION_DATA_DIR,
     MODEL_CHOICES,
     RECOMMENDED_MODEL,
     EXPERIMENT_PRESETS,
@@ -50,6 +52,10 @@ from challenge_images.data.multilabel import (
     format_manifest_report,
 )
 from challenge_images.training.train_multilabel import train_multilabel
+from challenge_images.data.segmentation_prelabel import (
+    build_segmentation_prelabels,
+    format_prelabel_report,
+)
 from challenge_images.data.hard_samples import build_m2_dataset, export_default_hard_samples
 from challenge_images.runtime_env import print_status
 from challenge_images.grid.grid_engine import draw_grid, grid_for_challenge
@@ -190,6 +196,42 @@ def menu_train_multilabel() -> None:
         model=model, data=data, epochs=epochs, batch=batch,
         imgsz=imgsz, device=device, name=name,
     )
+
+
+def menu_segmentation_prelabel() -> None:
+    """用预训练分割模型批量预标注，把人工工作从「画」降级为「改」。"""
+    source = Path(_input("在线归档目录（source）", str(ONLINE_CAPTURE_DIR)))
+    if not source.is_dir():
+        print(f"归档目录不存在：{source}")
+        return
+    output = Path(_input("输出目录（output）", str(SEGMENTATION_DATA_DIR)))
+    types_raw = _input("挑战类型（逗号分隔）", "multicaptcha")
+    challenge_types = tuple(item.strip() for item in types_raw.split(",") if item.strip())
+    weights = _input("分割权重（weights）", RECOMMENDED_SEGMENTATION_MODEL)
+    try:
+        limit_raw = _input("每个类别最多取几张（留空表示不限）", "40")
+        limit = int(limit_raw) if limit_raw.strip() else None
+        confidence = float(_input("检出置信度（confidence）", "0.30"))
+    except ValueError:
+        print("数量与置信度必须是数字，本次操作已取消。")
+        return
+    device = pick_device(_input("推理设备（device：mps/cpu）", DEFAULT_DEVICE))
+    overwrite = _input("覆盖已有预标注（y/n）", "n").lower() in ("y", "yes", "1")
+    print("\n正在推理并生成 YOLO 多边形标签……")
+    try:
+        report = build_segmentation_prelabels(
+            source, output,
+            weights=weights, device=device,
+            challenge_types=challenge_types,
+            limit_per_class=limit, confidence=confidence,
+            imgsz=DEFAULT_SEGMENTATION_IMGSZ, overwrite=overwrite,
+        )
+    except (FileExistsError, FileNotFoundError, ValueError) as error:
+        print(f"[错误] {error}")
+        return
+    print("\n" + format_prelabel_report(report))
+    print(f"\n预标注报告已保存：{output / 'prelabel_report.json'}")
+    print("下一步：人工复核多边形边界，并补标上面列出的未覆盖类别，然后选择菜单 16 训练。")
 
 
 def menu_train(smoke: bool = False) -> None:
@@ -563,6 +605,7 @@ def main() -> None:
         "13": ("比较历史训练实验", menu_compare_runs),
         "14": ("运行模型对比预设", menu_experiment_preset),
         "15": ("导出困难格子训练素材（待审核）", menu_export_hard_samples),
+        "22": ("分割数据预标注（COCO 模型生成候选多边形）", menu_segmentation_prelabel),
         "16": ("训练 YOLO26 实例分割模型", menu_train_segmentation),
         "17": ("分类 + 分割 mask 融合验证", menu_segmentation_fusion),
         "19": ("分层重划 train/val（每类保底验证样本）", menu_stratified_split),
@@ -574,7 +617,7 @@ def main() -> None:
         ("环境与数据", ("1", "2", "3", "4", "5", "19", "20")),
         ("分类模型训练与验证", ("6", "7", "21", "8", "9", "10")),
         ("GUI 与实验管理", ("11", "12", "13", "14", "15")),
-        ("分割模型与融合", ("16", "17")),
+        ("分割模型与融合", ("22", "16", "17")),
         ("其他", ("18",)),
     )
 
