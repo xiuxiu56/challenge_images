@@ -29,6 +29,8 @@ SEGMENTATION_PRETRAINED_DIR = SEGMENTATION_MODELS_DIR / "pretrained"
 SEGMENTATION_TRAINED_DIR = SEGMENTATION_MODELS_DIR / "trained"
 SEGMENTATION_DATA_DIR = ROOT / "data" / "segmentation" / "recaptcha_seg_v1"
 BALANCED_DATA_DIR = ROOT / "data" / "classification" / "dataset_cls_balanced"
+# 分层重划后的数据集：每个类别都有足够验证样本，指标不再被大类主导。
+STRATIFIED_DATA_DIR = ROOT / "data" / "classification" / "dataset_cls_stratified"
 HARD_SAMPLES_DIR = ROOT / "data" / "classification" / "hard_samples_review"
 M2_DATA_DIR_320 = ROOT / "data" / "classification" / "dataset_cls_m2_320"
 M2_DATA_DIR_640 = ROOT / "data" / "classification" / "dataset_cls_m2_640"

@@ -21,6 +21,7 @@ from challenge_images.config import (
     DEFAULT_SEGMENTATION_IMGSZ,
     DEFAULT_TRAIN,
     DEFAULT_TRAIN_IMGSZ,
+    STRATIFIED_DATA_DIR,
     MODEL_CHOICES,
     RECOMMENDED_MODEL,
     EXPERIMENT_PRESETS,
@@ -42,6 +43,7 @@ from challenge_images.training.experiment import compare_runs, save_compare_repo
 from challenge_images.data.manifest import build_default_manifests
 from challenge_images.data.dataset_audit import audit_dataset, format_audit_report, save_audit_report
 from challenge_images.data.dataset_prepare import prepare_dataset
+from challenge_images.data.stratified_split import build_stratified_dataset, format_split_report
 from challenge_images.data.hard_samples import build_m2_dataset, export_default_hard_samples
 from challenge_images.runtime_env import print_status
 from challenge_images.grid.grid_engine import draw_grid, grid_for_challenge
@@ -102,6 +104,45 @@ def menu_prepare() -> None:
     result = prepare_dataset(output_dir=output, balance=balance, use_links=links)
     print(f"数据副本已生成：{result}")
     print("原始数据目录保持不变。")
+
+
+def menu_stratified_split() -> None:
+    """按类别分层重划 train/val，让每个类别都有足够的验证样本。"""
+    source = Path(_input("源数据目录（source）", str(DATA_DIR)))
+    if not source.is_dir():
+        print(f"源数据目录不存在：{source}")
+        return
+    output = Path(_input("输出目录（output）", str(STRATIFIED_DATA_DIR)))
+    try:
+        val_ratio = float(_input("验证比例（val_ratio）", "0.15"))
+        val_min = int(_input("每类验证下限（val_min）", "50"))
+        val_max = int(_input("每类验证上限（val_max）", "300"))
+    except ValueError:
+        print("验证比例与上下限必须是数字，本次操作已取消。")
+        return
+    overwrite = _input("输出目录已存在时覆盖（y/n）", "n").lower() in ("y", "yes", "1")
+    print("\n正在扫描并按内容哈希去重，大数据集需要几分钟……")
+    try:
+        report = build_stratified_dataset(
+            source,
+            output,
+            val_ratio=val_ratio,
+            val_min=val_min,
+            val_max=val_max,
+            overwrite=overwrite,
+        )
+    except (FileExistsError, FileNotFoundError, ValueError) as error:
+        print(f"[错误] {error}")
+        return
+    print("\n" + format_split_report(report))
+    smallest_name, smallest_count = report.smallest_val_class
+    print(f"\n分层报告已保存：{output / 'split_report.json'}")
+    if smallest_count < 20:
+        print(
+            f"提示：{smallest_name} 仅有 {smallest_count} 张验证样本，"
+            "该类指标仍然噪声较大，需要补充真实数据而不是继续调参。"
+        )
+    print("原始数据目录保持不变，输出全部为符号链接。")
 
 
 def menu_train(smoke: bool = False) -> None:
@@ -477,10 +518,11 @@ def main() -> None:
         "15": ("导出困难格子训练素材（待审核）", menu_export_hard_samples),
         "16": ("训练 YOLO26 实例分割模型", menu_train_segmentation),
         "17": ("分类 + 分割 mask 融合验证", menu_segmentation_fusion),
+        "19": ("分层重划 train/val（每类保底验证样本）", menu_stratified_split),
         "18": ("退出", None),
     }
     menu_groups = (
-        ("环境与数据", ("1", "2", "3", "4", "5")),
+        ("环境与数据", ("1", "2", "3", "4", "5", "19")),
         ("分类模型训练与验证", ("6", "7", "8", "9", "10")),
         ("GUI 与实验管理", ("11", "12", "13", "14", "15")),
         ("分割模型与融合", ("16", "17")),

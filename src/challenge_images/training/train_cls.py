@@ -21,6 +21,7 @@ from ..config import (
 )
 from ..runtime_env import prepare_cache_dir
 from .experiment import save_training_meta
+from .macro_f1 import BEST_MACRO_F1_WEIGHT, HISTORY_FILENAME, attach_macro_f1_selection
 
 
 def train_cls(
@@ -114,10 +115,14 @@ def train_cls(
         if not last.is_file():
             raise FileNotFoundError(f"找不到可续训权重: {last}")
         yolo = YOLO(str(last))
+        # 长尾数据集上 top1 由大类主导，额外按 macro-F1 维护一份最佳权重。
+        tracker = attach_macro_f1_selection(yolo)
         results = yolo.train(resume=True)
     else:
         yolo = YOLO(resolve_model_reference(model))
+        tracker = attach_macro_f1_selection(yolo)
         results = yolo.train(**cfg)
+    print(f"[macro-F1] {tracker.summary()}")
 
     # 解析 best 路径
     best = Path(cfg["project"]) / cfg["name"] / "weights" / "best.pt"
@@ -140,10 +145,19 @@ def train_cls(
         export_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(best, export_dir / "best.pt")
         last = best.parent / "last.pt"
-        if last.is_file(): shutil.copy2(last, export_dir / "last.pt")
+        if last.is_file():
+            shutil.copy2(last, export_dir / "last.pt")
         shutil.copy2(meta_path, export_dir / "model_meta.json")
         print(f"训练元数据已保存：{run_dir / 'training_meta.json'}")
         print(f"最佳模型已同步：{export_dir / 'best.pt'}")
+        # macro-F1 最佳权重与 best.pt 往往不是同一轮；长尾类以前者为准。
+        macro_best = best.parent / BEST_MACRO_F1_WEIGHT
+        if macro_best.is_file():
+            shutil.copy2(macro_best, export_dir / BEST_MACRO_F1_WEIGHT)
+            print(f"macro-F1 最佳模型已同步：{export_dir / BEST_MACRO_F1_WEIGHT}")
+        history = run_dir / HISTORY_FILENAME
+        if history.is_file():
+            shutil.copy2(history, export_dir / HISTORY_FILENAME)
     return best
 
 
