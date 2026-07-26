@@ -44,6 +44,12 @@ from challenge_images.data.manifest import build_default_manifests
 from challenge_images.data.dataset_audit import audit_dataset, format_audit_report, save_audit_report
 from challenge_images.data.dataset_prepare import prepare_dataset
 from challenge_images.data.stratified_split import build_stratified_dataset, format_split_report
+from challenge_images.data.multilabel import (
+    MANIFEST_FILENAME,
+    build_manifest_from_folders,
+    format_manifest_report,
+)
+from challenge_images.training.train_multilabel import train_multilabel
 from challenge_images.data.hard_samples import build_m2_dataset, export_default_hard_samples
 from challenge_images.runtime_env import print_status
 from challenge_images.grid.grid_engine import draw_grid, grid_for_challenge
@@ -143,6 +149,47 @@ def menu_stratified_split() -> None:
             "该类指标仍然噪声较大，需要补充真实数据而不是继续调参。"
         )
     print("原始数据目录保持不变，输出全部为符号链接。")
+
+
+def menu_build_multilabel_manifest() -> None:
+    """从单标签目录推导多标签清单：同一张图出现在多个类别即为复合图块。"""
+    root = Path(_input("数据集目录（root）", str(STRATIFIED_DATA_DIR)))
+    if not root.is_dir():
+        print(f"数据集目录不存在：{root}")
+        return
+    print("\n正在按内容哈希比对各类别目录……")
+    manifest = build_manifest_from_folders(root)
+    output = manifest.save(root / MANIFEST_FILENAME)
+    print("\n" + format_manifest_report(manifest))
+    print(f"\n多标签清单已保存：{output}")
+    if not manifest.overrides:
+        print("当前数据没有检测到复合图块；多标签训练会退化为单标签。")
+
+
+def menu_train_multilabel() -> None:
+    """训练多标签分类模型（sigmoid + BCE）。"""
+    model = _pick_model()
+    data = Path(_input("训练数据目录（data）", str(STRATIFIED_DATA_DIR)))
+    if not data.is_dir():
+        print(f"数据目录不存在：{data}")
+        return
+    if not (data / MANIFEST_FILENAME).is_file():
+        print(f"未找到 {MANIFEST_FILENAME}；请先运行菜单 20 生成多标签清单。")
+        if _input("仍然按单标签继续（y/n）", "n").lower() not in ("y", "yes", "1"):
+            return
+    try:
+        epochs = int(_input("训练轮数（epochs）", str(DEFAULT_TRAIN["epochs"])))
+        batch = int(_input("批次大小（batch）", str(DEFAULT_TRAIN["batch"])))
+        imgsz = int(_input("输入尺寸（imgsz）", str(DEFAULT_TRAIN_IMGSZ)))
+    except ValueError:
+        print("训练轮数、批次大小和输入尺寸必须填写整数，本次训练已取消。")
+        return
+    device = pick_device(_input("训练设备（device：mps/cpu）", DEFAULT_DEVICE))
+    name = _input("运行名称（name）", f"recaptcha_multilabel_{imgsz}")
+    train_multilabel(
+        model=model, data=data, epochs=epochs, batch=batch,
+        imgsz=imgsz, device=device, name=name,
+    )
 
 
 def menu_train(smoke: bool = False) -> None:
@@ -519,11 +566,13 @@ def main() -> None:
         "16": ("训练 YOLO26 实例分割模型", menu_train_segmentation),
         "17": ("分类 + 分割 mask 融合验证", menu_segmentation_fusion),
         "19": ("分层重划 train/val（每类保底验证样本）", menu_stratified_split),
+        "20": ("生成多标签清单（识别复合图块）", menu_build_multilabel_manifest),
+        "21": ("训练多标签分类模型（sigmoid+BCE）", menu_train_multilabel),
         "18": ("退出", None),
     }
     menu_groups = (
-        ("环境与数据", ("1", "2", "3", "4", "5", "19")),
-        ("分类模型训练与验证", ("6", "7", "8", "9", "10")),
+        ("环境与数据", ("1", "2", "3", "4", "5", "19", "20")),
+        ("分类模型训练与验证", ("6", "7", "21", "8", "9", "10")),
         ("GUI 与实验管理", ("11", "12", "13", "14", "15")),
         ("分割模型与融合", ("16", "17")),
         ("其他", ("18",)),
