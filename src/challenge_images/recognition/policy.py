@@ -138,9 +138,9 @@ def resolve_recognition_route(
 ) -> RecognitionRoute:
     """根据题型、网格和模型覆盖情况选择实际识别链路。
 
-    3×3 独立图和动态题优先逐格分类；4×4 连续照片在分割模型覆盖
-    目标类别时使用整图融合。人行横道继续使用经过约束的局部多视角，
-    避免通用分割模型缺少该类别时扩大误点。
+    3×3 独立图和动态题优先逐格分类；4×4 连续照片（multicaptcha 与
+    tileselect）在分割模型覆盖目标类别时使用整图融合。人行横道继续
+    使用经过约束的局部多视角，避免通用分割模型缺少该类别时扩大误点。
     """
     if requested_mode not in ENGINE_MODE_LABELS:
         raise ValueError(f"未知识别引擎：{requested_mode}")
@@ -178,7 +178,7 @@ def resolve_recognition_route(
             reason="用户选择分类与整图分割融合",
         )
 
-    if spec.count == 9 or challenge in {"dynamic", "imageselect", "tileselect"}:
+    if spec.count == 9 or challenge in {"dynamic", "imageselect"}:
         return RecognitionRoute(
             requested_mode=requested_mode,
             actual_mode="classifier",

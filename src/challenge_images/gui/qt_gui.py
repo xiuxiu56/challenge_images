@@ -832,7 +832,19 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
             int(getattr(challenge, "grid_rows", 0) or 0),
             int(getattr(challenge, "grid_cols", 0) or 0),
         )
-        spec = resolve_challenge_grid(challenge.challenge_type, detected)
+        # 图片尺寸是最可靠的网格信号，优先于挑战类型与 pmeta。
+        # Image.open 只解析文件头即可拿到尺寸，不会读入像素。
+        image_size: tuple[int, int] | None = None
+        try:
+            with Image.open(sample.path) as probe:
+                image_size = probe.size
+        except (OSError, AttributeError):
+            image_size = None
+        spec = resolve_challenge_grid(
+            challenge.challenge_type,
+            detected,
+            image_size=image_size,
+        )
         rows, cols = spec.rows, spec.columns
         self.online_grid.setCurrentText(spec.text)
         self._set_online_status(

@@ -43,9 +43,11 @@ def test_category_profiles_no_longer_pin_per_class_resolution():
 
 
 def test_challenge_family_splits_3x3_and_4x4():
-    for challenge in ("dynamic", "imageselect", "tileselect"):
+    for challenge in ("dynamic", "imageselect"):
         assert challenge_family(challenge) == "grid3"
-    assert challenge_family("multicaptcha") == "grid4"
+    # tileselect 实测 450×450 且 pmeta 写 4,4，属于 4×4 家族。
+    for challenge in ("multicaptcha", "tileselect"):
+        assert challenge_family(challenge) == "grid4"
     # 未知或缺失类型按 3×3 处理。
     assert challenge_family(None) == "grid3"
     assert challenge_family("unknown") == "grid3"
@@ -53,7 +55,7 @@ def test_challenge_family_splits_3x3_and_4x4():
 
 def test_3x3_challenges_keep_category_baseline():
     """3×3 家族不改动经过调校的类别基线。"""
-    for challenge in ("dynamic", "imageselect", "tileselect"):
+    for challenge in ("dynamic", "imageselect"):
         assert profile_for("Car", challenge) == CATEGORY_PROFILES["Car"]
         assert profile_for("Crosswalk", challenge) == CATEGORY_PROFILES["Crosswalk"]
 

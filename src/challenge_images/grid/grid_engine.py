@@ -25,12 +25,27 @@ class GridSpec:
         return f"{self.rows}×{self.columns}"
 
 
+# 挑战类型默认网格。实测尺寸佐证（13707 张在线 + 离线图，无一例外）：
+#   dynamic / imageselect  300×300 → 3×3
+#   tileselect / multicaptcha 450×450 → 4×4
+# tileselect 此前被配置成 3×3，但其 pmeta 明确写 4,4 且图片为 450×450，
+# 按 3×3 切分会把 16 格图完全错位。
 CHALLENGE_GRID_DEFAULTS = {
     "dynamic": GridSpec(3, 3),
     "imageselect": GridSpec(3, 3),
-    "tileselect": GridSpec(3, 3),
+    "tileselect": GridSpec(4, 4),
     "multicaptcha": GridSpec(4, 4),
 }
+
+# 完整挑战图的标准尺寸 → 网格。这是最可靠的信号：直接来自像素，
+# 不会像 pmeta 那样残留上一轮的值，也不依赖挑战类型字段是否准确。
+CHALLENGE_IMAGE_SIZES = {
+    300: GridSpec(3, 3),
+    450: GridSpec(4, 4),
+}
+# 单格图约 100~112px，远小于完整挑战图；低于此值不做尺寸推断，
+# 避免把替换用的单格图误判成整图。
+MIN_FULL_CHALLENGE_PIXELS = 200
 
 
 def grid_for_challenge(challenge_type: str) -> GridSpec:
@@ -38,25 +53,54 @@ def grid_for_challenge(challenge_type: str) -> GridSpec:
     return CHALLENGE_GRID_DEFAULTS.get(challenge_type.lower(), GridSpec(3, 3))
 
 
+def grid_from_image_size(size: tuple[int, int] | None) -> GridSpec | None:
+    """从完整挑战图尺寸推断网格。
+
+    优先匹配标准尺寸；非标准尺寸时按每格约 112px 估算并夹到 3 或 4。
+    尺寸过小（单格图）或非正方形时返回 ``None``，交给其他信号判断。
+    """
+    if not size:
+        return None
+    width, height = int(size[0]), int(size[1])
+    if width <= 0 or height <= 0 or width != height:
+        return None
+    if width < MIN_FULL_CHALLENGE_PIXELS:
+        return None
+    exact = CHALLENGE_IMAGE_SIZES.get(width)
+    if exact is not None:
+        return exact
+    cells = max(3, min(4, round(width / 112)))
+    return GridSpec(cells, cells)
+
+
 def resolve_challenge_grid(
     challenge_type: str | None,
     detected: tuple[int, int] | None = None,
+    image_size: tuple[int, int] | None = None,
 ) -> GridSpec:
-    """统一解析在线挑战网格。
+    """按可靠性依次采信三个信号解析在线挑战网格。
 
-    ``multicaptcha`` 在本项目的大图流程固定按 4×4 处理。
-    reload/pmeta 偶尔缺少网格字段，或保留上一轮的 3×3 值，
-    因此该类型优先级高于检测值。其他类型优先使用合法
-    检测值，最后再使用类型默认值。
+    1. **图片尺寸**——直接的像素证据，最可靠。300×300 必然是 3×3，
+       450×450 必然是 4×4，不受接口字段是否新鲜影响。
+    2. **已知挑战类型**——实测 13707 张图上「类型 → 网格」无一例外，
+       因此它优先于 pmeta。pmeta 观察到会残留上一轮的 3×3，
+       在 multicaptcha 上曾导致 16 格图被按 9 格切分。
+    3. **pmeta 检测值**——仅用于类型未知或缺失时。
+
+    单格替换图不会触发尺寸推断（尺寸过小），因此可以安全地把任意图片
+    尺寸传进来。
     """
+    from_size = grid_from_image_size(image_size)
+    if from_size is not None:
+        return from_size
     normalized = str(challenge_type or "").strip().lower()
-    if normalized == "multicaptcha":
-        return GridSpec(4, 4)
+    if normalized in CHALLENGE_GRID_DEFAULTS:
+        return CHALLENGE_GRID_DEFAULTS[normalized]
     if detected is not None:
         rows, columns = detected
         if rows in (3, 4) and columns in (3, 4):
             return GridSpec(rows, columns)
-    return grid_for_challenge(normalized)
+    return GridSpec(3, 3)
 
 
 def parse_grid(text: str) -> GridSpec:

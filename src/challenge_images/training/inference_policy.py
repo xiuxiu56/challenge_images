@@ -2,11 +2,11 @@
 
 同一个类别在两种题型下的图像性质完全不同，必须使用不同参数：
 
-``dynamic`` / ``imageselect`` / ``tileselect``（3×3，大图 300×300，每格 100×100）
+``dynamic`` / ``imageselect``（3×3，大图 300×300，每格 100×100）
     每个格子是一张**独立照片**，目标通常是照片主体并占据整格。
     此时 Top-1 就是目标，可以使用严格阈值换取精度。
 
-``multicaptcha``（4×4，大图 450×450，每格 112×112）
+``multicaptcha`` / ``tileselect``（4×4，大图 450×450，每格 112×112）
     整张连续照片被切成 16 块，一个目标往往横跨多格。边缘格只包含目标的
     一小部分（车尾、车轮、半条斑马线），整格分类的 Top-1 常常是背景类，
     目标掉到 Top-2/Top-3。此时沿用 3×3 的严格阈值必然漏掉全部边缘格。
@@ -94,8 +94,9 @@ CATEGORY_PROFILES = {
 
 # ---------- 第二层：挑战类型 ----------
 # 3×3 家族共用类别基线；只有 4×4 连续照片需要单独放宽。
-GRID3_CHALLENGES = frozenset({"dynamic", "imageselect", "tileselect"})
-GRID4_CHALLENGES = frozenset({"multicaptcha"})
+# tileselect 实测为 450×450 的 4×4，其 pmeta 也明确写 4,4。
+GRID3_CHALLENGES = frozenset({"dynamic", "imageselect"})
+GRID4_CHALLENGES = frozenset({"multicaptcha", "tileselect"})
 
 
 @dataclass(frozen=True)

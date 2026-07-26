@@ -609,3 +609,40 @@ def test_late_dynamic_payload_keeps_pending_tile_index(tmp_path: Path):
     assert late.sample.source_tile_id == 10
     assert "replacements" in late.sample.path.parts
     assert session._pending_replacements == []
+
+
+def test_pmeta_grid_indices_cover_all_challenge_types():
+    """行列在 pmeta 分类行的下标 3,4，不是 2,3。
+
+    旧实现读 [2],[3]，只在 3×3 题型偶然命中（该位置恰好也是 3），
+    对全部 4×4 挑战返回 None。实测 8626 条在线记录，下标 [3],[4]
+    命中率 100%。
+    """
+    from challenge_images.online.click_geometry import grid_from_pmeta
+
+    # dynamic：真实样本，[3],[4] = 3,3
+    dynamic = ["pmeta", ["/m/09d_r", None, 3, 3, 3, None, "Mountain"]]
+    assert grid_from_pmeta(dynamic) == (3, 3)
+
+    # tileselect / multicaptcha：真实样本，[3],[4] = 4,4，而 [2] = 2
+    four_by_four = ["pmeta", ["/m/0199g", None, 2, 4, 4]]
+    assert grid_from_pmeta(four_by_four) == (4, 4)
+
+    # multicaptcha 多步骤：分类行嵌套在更深的层级里
+    nested = ["pmeta", None, None, None, None, [[
+        ["/m/0199g", None, 2, 4, 4],
+        ["/m/04_sv", None, 2, 4, 4],
+    ]]]
+    assert grid_from_pmeta(nested) == (4, 4)
+
+
+def test_pmeta_grid_rejects_invalid_values():
+    from challenge_images.online.click_geometry import grid_from_pmeta
+
+    assert grid_from_pmeta(None) is None
+    assert grid_from_pmeta([]) is None
+    assert grid_from_pmeta(["pmeta"]) is None
+    # 行列不在 3/4 范围内时不采信。
+    assert grid_from_pmeta(["pmeta", ["/m/0199g", None, 2, 9, 9]]) is None
+    # 分类行过短。
+    assert grid_from_pmeta(["pmeta", ["/m/0199g", None]]) is None

@@ -109,34 +109,48 @@ def cell_center(layout: TileLayout, index: int) -> tuple[float, float]:
     return layout.cell(index).center
 
 
+# pmeta 分类行中行列所在的下标。实测（8626 条在线记录）：
+#   dynamic      ["/m/09d_r", null, 3, 3, 3, null, "Mountain"]  → [3],[4] = 3,3
+#   tileselect   ["/m/0199g", null, 2, 4, 4]                    → [3],[4] = 4,4
+#   multicaptcha ["/m/0199g", null, 2, 4, 4]                    → [3],[4] = 4,4
+# 下标 [3],[4] 在全部题型上命中率 100%；旧实现读的 [2],[3] 只在 3×3 题型
+# 偶然命中（因为该位置恰好也是 3），对全部 4×4 挑战都会返回 None。
+PMETA_GRID_INDICES = (3, 4)
+# 兼容可能存在的旧格式，作为兜底再试一次。
+PMETA_GRID_FALLBACK_INDICES = (2, 3)
+
+
 def grid_from_pmeta(pmeta: object) -> tuple[int, int] | None:
     """从 pmeta 分类行读取网格尺寸。
 
-    实测单类行：
-      ["/m/09d_r", null, 3, 3, 3, null, "Mountain"]
-    下标 2/3 常为 rows/cols。
+    深度优先寻找第一个以 ``/m/`` 开头的分类行，再按已验证的下标取行列。
     """
     if not isinstance(pmeta, list) or not pmeta:
         return None
     rows_cols: tuple[int, int] | None = None
+
+    def read(node: list, indices: tuple[int, int]) -> tuple[int, int] | None:
+        row_index, column_index = indices
+        if len(node) <= column_index:
+            return None
+        try:
+            rows, columns = int(node[row_index]), int(node[column_index])
+        except (TypeError, ValueError):
+            return None
+        return (rows, columns) if rows in (3, 4) and columns in (3, 4) else None
 
     def visit(node: object) -> None:
         nonlocal rows_cols
         if rows_cols is not None:
             return
         if isinstance(node, list):
-            if len(node) >= 4 and isinstance(node[0], str) and node[0].startswith("/m/"):
-                try:
-                    rows, cols = int(node[2]), int(node[3])
-                except (TypeError, ValueError):
-                    rows = cols = 0
-                if rows in (3, 4) and cols in (3, 4):
-                    rows_cols = (rows, cols)
+            if node and isinstance(node[0], str) and node[0].startswith("/m/"):
+                found = read(node, PMETA_GRID_INDICES) or read(node, PMETA_GRID_FALLBACK_INDICES)
+                if found is not None:
+                    rows_cols = found
                     return
             for child in node:
                 visit(child)
 
     visit(pmeta)
-    if rows_cols is not None:
-        return rows_cols
-    return None
+    return rows_cols

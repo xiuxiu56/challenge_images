@@ -19,6 +19,7 @@ from typing import Any
 from PIL import Image
 
 from ..grid.grid_engine import resolve_challenge_grid
+from .click_geometry import grid_from_pmeta
 from ..category_map import (
     challenge_type_zh,
     class_to_mid,
@@ -131,17 +132,10 @@ def parse_reload_response(text: str) -> dict[str, Any]:
         if payload
         else None
     )
-    detected_grid: tuple[int, int] | None = None
-    # pmeta 分类行下标 2/3 常为 rows/cols（MCP 实测：["/m/09d_r", null, 3, 3, 3, null, "Mountain"]）
-    if categories and isinstance(pmeta, list) and len(pmeta) > 1 and isinstance(pmeta[1], list):
-        row = pmeta[1]
-        if len(row) > 3:
-            try:
-                rows, cols = int(row[2]), int(row[3])
-                if rows in (3, 4) and cols in (3, 4):
-                    detected_grid = (rows, cols)
-            except (TypeError, ValueError):
-                detected_grid = None
+    # 统一走 grid_from_pmeta：它会深度优先找分类行并按已验证的下标取行列。
+    # 此处原本自己读 row[2]/row[3]，与旧版 grid_from_pmeta 犯同一个 off-by-one，
+    # 导致全部 4×4 挑战解析失败。
+    detected_grid = grid_from_pmeta(pmeta)
     resolved_grid = resolve_challenge_grid(challenge_type, detected_grid)
     grid = {"rows": resolved_grid.rows, "columns": resolved_grid.columns}
     return {
