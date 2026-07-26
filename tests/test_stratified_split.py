@@ -6,6 +6,7 @@ from challenge_images.data.stratified_split import (
     build_stratified_dataset,
     collect_class_files,
     format_split_report,
+    measure_val_leakage,
     plan_val_count,
 )
 
@@ -193,3 +194,44 @@ def test_no_train_val_leakage_after_split(tmp_path):
         }
 
     assert digests("train") & digests("val") == set()
+
+
+def test_measure_val_leakage_detects_copies(tmp_path):
+    """训练前必须能发现验证集与训练集重叠。"""
+    source = tmp_path / "leaky"
+    _write_images(source, "train", "Car", 10)
+    # 把 3 张训练图原样复制进验证集。
+    (source / "val" / "Car").mkdir(parents=True)
+    for index in range(3):
+        (source / "val" / "Car" / f"copy{index}.jpg").write_bytes(
+            (source / "train" / "Car" / f"{index:04d}.jpg").read_bytes()
+        )
+    _write_images(source, "val", "Car", 2, start=900)
+
+    total, leaked = measure_val_leakage(source)
+    assert total == 5
+    assert leaked == 3
+
+
+def test_measure_val_leakage_clean_dataset(tmp_path):
+    source = tmp_path / "clean"
+    _write_images(source, "train", "Car", 10)
+    _write_images(source, "val", "Car", 4, start=900)
+    assert measure_val_leakage(source) == (4, 0)
+
+
+def test_measure_val_leakage_handles_missing_splits(tmp_path):
+    assert measure_val_leakage(tmp_path / "absent") == (0, 0)
+
+
+def test_stratified_output_has_no_leakage(tmp_path):
+    """分层划分的产物必须通过泄漏检查——这是它存在的意义。"""
+    source = tmp_path / "source"
+    _write_images(source, "train", "Car", 60)
+    _write_images(source, "val", "Car", 60)  # 与 train 内容不同但同类
+
+    output = tmp_path / "out"
+    build_stratified_dataset(source, output, val_min=5, val_max=20)
+    total, leaked = measure_val_leakage(output)
+    assert total > 0
+    assert leaked == 0

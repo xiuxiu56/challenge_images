@@ -287,6 +287,50 @@ def build_stratified_dataset(
     return report
 
 
+def measure_val_leakage(root: str | Path, *, max_files: int = 200_000) -> tuple[int, int]:
+    """统计验证集里有多少张图与训练集字节完全相同。
+
+    返回 ``(验证总数, 泄漏数)``。原始数据集有 42% 的验证图是训练图的副本，
+    基于它得到的任何精度都被高估。训练前跑一次可以在浪费几小时之前发现问题。
+
+    整套哈希在四万余张图上约 10 秒——相对于一次训练可以忽略。
+    文件数超过 ``max_files`` 时跳过，避免在超大数据集上拖慢启动。
+    """
+    dataset = Path(root)
+    train_dir, val_dir = dataset / "train", dataset / "val"
+    if not train_dir.is_dir() or not val_dir.is_dir():
+        return (0, 0)
+
+    def images(directory: Path) -> list[Path]:
+        return [
+            path
+            for path in directory.rglob("*")
+            if path.is_file()
+            and not path.name.startswith(".")
+            and path.suffix.lower() in IMG_EXTS
+        ]
+
+    val_files = images(val_dir)
+    train_files = images(train_dir)
+    if len(val_files) + len(train_files) > max_files:
+        return (len(val_files), -1)
+
+    train_digests = set()
+    for path in train_files:
+        try:
+            train_digests.add(_file_digest(path))
+        except OSError:
+            continue
+    leaked = 0
+    for path in val_files:
+        try:
+            if _file_digest(path) in train_digests:
+                leaked += 1
+        except OSError:
+            continue
+    return (len(val_files), leaked)
+
+
 def format_split_report(report: SplitReport) -> str:
     """生成可直接打印的中文分层报告。"""
     lines = [

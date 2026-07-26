@@ -19,6 +19,7 @@ from ..config import (
     resolve_model_reference,
     TRAINED_MODELS_DIR,
 )
+from ..data.stratified_split import measure_val_leakage
 from ..runtime_env import prepare_cache_dir
 from .experiment import save_training_meta
 from .class_balance import attach_class_weights, attach_domain_augment
@@ -82,6 +83,19 @@ def train_cls(
     data_path = Path(cfg["data"])
     if not data_path.is_dir():
         raise FileNotFoundError(f"数据集目录不存在: {data_path}")
+
+    # 训练前检查验证集是否与训练集重叠。原始数据集有 42% 的验证图是训练图
+    # 的副本，指标会被严重高估；在浪费几小时之前先发现问题。
+    val_total, leaked = measure_val_leakage(data_path)
+    if leaked > 0:
+        ratio = leaked / max(val_total, 1)
+        print("=" * 60)
+        print(f"[警告] 验证集有 {leaked}/{val_total}（{ratio:.0%}）与训练集字节完全相同。")
+        print("       本次训练得到的精度会被高估，不同实验之间也不具可比性。")
+        print("       请先运行菜单 19 分层重划，它会全局去重后再划分。")
+        print("=" * 60)
+    elif val_total:
+        print(f"验证集泄漏检查：{val_total} 张验证图与训练集零重叠 ✓")
 
     print("=" * 60)
     prepare_cache_dir()

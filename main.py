@@ -23,6 +23,7 @@ from challenge_images.config import (
     DEFAULT_TRAIN,
     DEFAULT_TRAIN_IMGSZ,
     STRATIFIED_DATA_DIR,
+    TRAINING_DATA_DIR,
     ONLINE_CAPTURE_DIR,
     SEGMENTATION_DATA_DIR,
     MODEL_CHOICES,
@@ -788,7 +789,7 @@ def main() -> None:
 
     while True:
         print("\n======== reCAPTCHA 分类与分割训练菜单 ========")
-        print(f"数据: {DATA_DIR}")
+        print(f"训练数据: {TRAINING_DATA_DIR.name}")
         print(f"设备: {device_status()}")
         print(f"推荐模型: {RECOMMENDED_MODEL}")
         for group_name, keys in menu_groups:

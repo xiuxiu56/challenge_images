@@ -98,10 +98,26 @@ def test_model_training_profiles_are_independent():
 
 
 def test_dataset_no_longer_switches_with_resolution():
-    """m2_640 实为指向 m2_320 的符号链接，数据版本与分辨率无关。"""
-    assert training_data_for_imgsz(128).name == "dataset_cls_m2_320"
-    assert training_data_for_imgsz(224).name == "dataset_cls_m2_320"
-    assert training_data_for_imgsz(640).name == "dataset_cls_m2_320"
+    """数据版本与分辨率无关：三个尺寸返回同一个目录。"""
+    from challenge_images.config import TRAINING_DATA_DIR
+
+    assert training_data_for_imgsz(128) == TRAINING_DATA_DIR
+    assert training_data_for_imgsz(224) == TRAINING_DATA_DIR
+    assert training_data_for_imgsz(640) == TRAINING_DATA_DIR
+
+
+def test_training_defaults_to_deduplicated_dataset():
+    """正式训练必须默认使用去重且无泄漏的分层数据集。
+
+    原始 dataset_cls_full_57k / m2_320 的验证集有 42% 是训练图的副本。
+    """
+    from challenge_images.config import STRATIFIED_DATA_DIR, TRAINING_DATA_DIR
+
+    if STRATIFIED_DATA_DIR.is_dir():
+        assert TRAINING_DATA_DIR == STRATIFIED_DATA_DIR
+        assert str(DEFAULT_TRAIN["data"]) == str(STRATIFIED_DATA_DIR)
+    # 分层数据集尚未生成时回退到旧目录，保证全新克隆可跑通。
+    assert TRAINING_DATA_DIR.name.startswith("dataset_cls_")
 
     profile_128 = training_profile_for_model("yolo26m-cls.pt", imgsz=128)
     profile_224 = training_profile_for_model("yolo26m-cls.pt", imgsz=224)

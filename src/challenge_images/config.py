@@ -140,32 +140,44 @@ SEGMENTATION_MODEL_CHOICES = {
     "5": ("yolo26x-seg.pt", "xlarge 资源占用最高"),
 }
 
+def default_training_data() -> Path:
+    """返回正式训练应使用的数据目录。
+
+    优先使用分层重划后的 ``dataset_cls_stratified``：原始数据集有 18% 精确
+    重复，且验证集 42% 与训练集字节相同，基于它得到的任何指标都不可信。
+    分层数据集尚未生成时回退到旧目录，保证全新克隆也能跑通。
+    """
+    return STRATIFIED_DATA_DIR if STRATIFIED_DATA_DIR.is_dir() else M2_DATA_DIR_320
+
+
+TRAINING_DATA_DIR = default_training_data()
+
 # 对照实验围绕原生分辨率（100~112px）展开，不再向上试探 320/640。
 EXPERIMENT_PRESETS = {
     "m@128": {
         "model": "yolo26m-cls.pt",
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "imgsz": 128,
         "batch": 64,
         "name": "recaptcha_v3_m_128",
     },
     "m@160": {
         "model": "yolo26m-cls.pt",
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "imgsz": 160,
         "batch": 64,
         "name": "recaptcha_v3_m_160",
     },
     "m@224": {
         "model": "yolo26m-cls.pt",
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "imgsz": 224,
         "batch": 32,
         "name": "recaptcha_v3_m_224",
     },
     "s@160": {
         "model": "yolo26s-cls.pt",
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "imgsz": 160,
         "batch": 64,
         "name": "recaptcha_v3_s_160",
@@ -206,7 +218,7 @@ COMMON_TRAIN_PARAMS = {
 # 正式训练默认使用 m@160：略高于 112px 原生图块，训练耗时约为 @320 的 1/4。
 DEFAULT_TRAIN = {
     **COMMON_TRAIN_PARAMS,
-    "data": str(M2_DATA_DIR_320),
+    "data": str(TRAINING_DATA_DIR),
     "imgsz": DEFAULT_TRAIN_IMGSZ,
     # device 在 train 时用 pick_device() 再确认一次，避免 import 时 MPS 状态过期。
     "device": DEFAULT_DEVICE,
@@ -261,35 +273,35 @@ MODEL_TRAIN_PROFILES = {
         "epochs": 50,
         "batch": 64,
         "imgsz": DEFAULT_TRAIN_IMGSZ,
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "name": "recaptcha_v3_n_160",
     },
     "yolo26s-cls.pt": {
         "epochs": 50,
         "batch": 64,
         "imgsz": DEFAULT_TRAIN_IMGSZ,
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "name": "recaptcha_v3_s_160",
     },
     "yolo26m-cls.pt": {
         "epochs": 50,
         "batch": 64,
         "imgsz": DEFAULT_TRAIN_IMGSZ,
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "name": "recaptcha_v3_m_160",
     },
     "yolo26l-cls.pt": {
         "epochs": 50,
         "batch": 32,
         "imgsz": DEFAULT_TRAIN_IMGSZ,
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "name": "recaptcha_v3_l_160",
     },
     "yolo26x-cls.pt": {
         "epochs": 50,
         "batch": 32,
         "imgsz": DEFAULT_TRAIN_IMGSZ,
-        "data": str(M2_DATA_DIR_320),
+        "data": str(TRAINING_DATA_DIR),
         "name": "recaptcha_v3_x_160",
     },
 }
@@ -303,7 +315,7 @@ def training_data_for_imgsz(imgsz: int) -> Path:
     分辨率由训练器处理，与数据版本无关，因此这里不再随 imgsz 变化。
     """
     del imgsz  # 保留参数以兼容旧调用方。
-    return M2_DATA_DIR_320
+    return TRAINING_DATA_DIR
 
 
 def read_training_imgsz(weight_path: str | Path) -> int | None:
