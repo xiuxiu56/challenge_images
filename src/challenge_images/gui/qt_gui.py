@@ -1183,7 +1183,8 @@ class QtChallengeGUI(QMainWindow):
         preset = str(self.parameter_preset.currentData() or "balanced")
         if preset != "custom":
             target = target_override or self._current_recognition_target()
-            parameters = parameters_for(preset, target)
+            # 已加载权重时按其训练分辨率推理，避免训练/推理尺寸错配。
+            parameters = parameters_for(preset, target, self.service.training_imgsz)
             self._applying_recognition_preset = True
             try:
                 self.imgsz.setCurrentText(str(parameters.classification_imgsz))

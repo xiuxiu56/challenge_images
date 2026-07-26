@@ -15,9 +15,12 @@ from challenge_images.category_map import dump_mapping_table
 from challenge_images.config import (
     ASSETS_DIR,
     DATA_DIR,
+    NATIVE_TILE_PIXELS,
     REPORTS_DIR,
     DEFAULT_DEVICE,
+    DEFAULT_SEGMENTATION_IMGSZ,
     DEFAULT_TRAIN,
+    DEFAULT_TRAIN_IMGSZ,
     MODEL_CHOICES,
     RECOMMENDED_MODEL,
     EXPERIMENT_PRESETS,
@@ -119,19 +122,22 @@ def menu_train(smoke: bool = False) -> None:
     try:
         epochs = int(_input("训练轮数（epochs）", "3" if smoke else str(profile["epochs"])))
         batch = int(_input("批次大小（batch）", "32" if smoke else str(profile["batch"])))
-        imgsz = int(_input("输入尺寸（imgsz）", "224" if smoke else str(profile["imgsz"])))
+        imgsz = int(_input("输入尺寸（imgsz）", "128" if smoke else str(profile["imgsz"])))
     except ValueError:
         print("训练轮数、批次大小和输入尺寸必须填写整数，本次训练已取消。")
         return
-    # 输入尺寸改为 320/640 时，默认数据目录和运行名同步切换。
+    # 数据目录不再随 imgsz 变化；运行名带上分辨率便于对照。
     selected_profile = profile if smoke else training_profile_for_model(model, imgsz=imgsz)
     recommended_data = DATA_DIR if smoke else Path(str(selected_profile["data"]))
     if not smoke:
-        print(f"\n已根据输入尺寸 imgsz={imgsz} 选择训练数据配置：")
+        print(f"\n已根据输入尺寸 imgsz={imgsz} 生成本次训练配置：")
         print(f"  默认数据目录：{recommended_data}")
         print(f"  基础运行名称：{selected_profile['name']}")
-        if imgsz >= 640:
-            print("  当前为 640 分辨率实验；MPS 内存压力过高时优先降低 batch。")
+        if imgsz > 2 * NATIVE_TILE_PIXELS:
+            print(
+                f"  提示：图块原生尺寸约 {NATIVE_TILE_PIXELS}px，"
+                f"imgsz={imgsz} 属于大幅上采样，只会增加耗时而不增加信息量。"
+            )
     data = Path(_input("训练数据目录（data）", str(recommended_data)))
     if not data.is_dir():
         print(f"数据目录不存在：{data}")
@@ -334,12 +340,13 @@ def menu_segmentation_fusion() -> None:
     segmentation = SegmentationModelService()
     classification.load(classification_weights, device)
     segmentation.load(segmentation_weights, device)
+    # 分类分辨率跟随权重的训练分辨率，缺少元数据时回退全局默认。
     all_classification = classification.predict_grid(
         image,
         spec,
         threshold=0.0,
         target_class=None,
-        imgsz=224,
+        imgsz=classification.training_imgsz or DEFAULT_TRAIN_IMGSZ,
         top_k=3,
         selected_only=False,
     )
@@ -354,7 +361,7 @@ def menu_segmentation_fusion() -> None:
         image,
         spec,
         target_class,
-        imgsz=640,
+        imgsz=DEFAULT_SEGMENTATION_IMGSZ,
         confidence=0.25,
     )
     fusion = fuse_predictions(
@@ -419,8 +426,10 @@ def menu_advice() -> None:
   4. yolo26l/x-cls    24GB 一般能跑，但慢；收益未必值得
 
 超参建议（分类）:
-  - 输入尺寸（imgsz）=640（小目标对照实验）
-  - 批次大小（batch）=32（所有训练模型和对照实验统一）
+  - 输入尺寸（imgsz）=160
+    实测原生尺寸：3×3 大图 300×300→每格 100×100，4×4 大图 450×450→每格 112×112。
+    训练分辨率只需略高于原生尺寸；@320 相比 @224 多花 2.3 倍时间只换来 top1 +0.3%。
+  - 批次大小（batch）=64（160 分辨率下显存充裕，可比 320 时期放大一倍）
   - 训练设备（device）=mps  ← Mac Apple Silicon 优先使用
   - 训练轮数（epochs）=50 + 早停轮数（patience）=12
   - 优化器（optimizer）=AdamW，初始学习率（lr0）=0.0005，余弦学习率（cos_lr）=True
@@ -432,7 +441,7 @@ def menu_advice() -> None:
 MPS 注意:
   - 本机已自动检测 MPS；菜单里默认就是 mps
   - 没有 NVIDIA，不要填 cuda / 0（0 在 ultralytics 里常被当成 CUDA）
-  - 统一内存 24GB：m + batch32 + 640 仍可能占用较高；OOM 先降 batch，再降 imgsz
+  - 统一内存 24GB：160 分辨率下 m + batch64 压力很小；OOM 先降 batch，再降 imgsz
   - amp 若 loss 变 nan / 报错 → 训练时改 amp=n
   - workers 保持 4 左右即可，macOS 多进程过大反而慢
 
@@ -492,8 +501,8 @@ def main() -> None:
             """
 -------- 建议操作 --------
 首次使用：1（检查 MPS）→ 2（确认数据）→ 6（冒烟训练）
-正式训练：选择 7，默认使用 yolo26m-cls.pt + imgsz=640
-模型对比：选择 14，可运行 m@224、m@320、m@640、s@224
+正式训练：选择 7，默认使用 yolo26m-cls.pt + imgsz=160（贴近 112px 原生图块）
+模型对比：选择 14，可运行 m@128、m@160、m@224、s@160
 训练结果：runs/classify/<运行名称>/weights/best.pt
 GUI 模型：训练结束后同步到 models/trained/<运行名称>/best.pt
 困难样本：选择 15，导出已确认格子；Boat 只记录清单

@@ -9,25 +9,47 @@ from typing import Any
 import json
 
 from ..category_map import format_predict_line, normalize_dataset_class
-from ..config import DEFAULT_PREDICT, DEFAULT_VAL, device_status, pick_device, resolve_default_weight, resolve_model_reference
+from ..config import (
+    DEFAULT_PREDICT,
+    DEFAULT_TRAIN_IMGSZ,
+    DEFAULT_VAL,
+    device_status,
+    pick_device,
+    read_training_imgsz,
+    resolve_default_weight,
+    resolve_model_reference,
+)
 from ..runtime_env import prepare_cache_dir
 from ..data.dataset_info import IMG_EXTS
+
+
+def resolve_inference_imgsz(weights: str | Path, requested: int | None = None) -> int:
+    """确定推理分辨率：显式请求 > 模型训练分辨率 > 全局默认。
+
+    推理分辨率与训练分辨率不一致会掉点，因此优先跟随权重自带的元数据。
+    """
+    if requested is not None:
+        return int(requested)
+    recorded = read_training_imgsz(weights)
+    return int(recorded) if recorded else int(DEFAULT_TRAIN_IMGSZ)
 
 
 def evaluate_directory(
     weights: str | Path,
     data: str | Path,
-    imgsz: int = 224,
+    imgsz: int | None = None,
     device: str | None = None,
     report_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """评估外部分类目录，目录结构要求 ``类别/图片``。
 
     该函数不依赖 sklearn，输出整体准确率和逐类 Precision、Recall、F1。
+    ``imgsz`` 为 ``None`` 时自动跟随权重的训练分辨率。
     """
     requested_root = Path(data)
     if not requested_root.is_dir():
         raise FileNotFoundError(f"外部验证目录不存在: {requested_root}")
+    imgsz = resolve_inference_imgsz(weights, imgsz)
     # Ultralytics 分类数据集根目录通常是 train/val/类别/图片。逐类报告默认
     # 评估 val，避免把 train、val 误当成类别。
     root = requested_root / "val" if (requested_root / "val").is_dir() else requested_root
@@ -125,6 +147,8 @@ def val_cls(
         cfg["data"] = str(data)
     cfg.update(extra)
     cfg["device"] = pick_device(str(cfg.get("device", "")))
+    # 未显式指定时跟随权重的训练分辨率，避免训练/验证尺寸错配。
+    cfg["imgsz"] = resolve_inference_imgsz(w, extra.get("imgsz"))
 
     print("=" * 60)
     print("开始验证")
@@ -167,6 +191,7 @@ def predict_cls(
     cfg: dict[str, Any] = {**DEFAULT_PREDICT}
     cfg.update(extra)
     cfg["device"] = pick_device(str(cfg.get("device", "")))
+    cfg["imgsz"] = resolve_inference_imgsz(w, extra.get("imgsz"))
 
     print(f"预测图片（source）: {src}  模型权重（weights）: {w}")
     print(f"  设备状态: {device_status()}  → 预测设备（device）={cfg['device']}")

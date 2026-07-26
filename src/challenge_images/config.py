@@ -39,6 +39,19 @@ REPORTS_DIR = ROOT / "reports"
 ANNOTATIONS_DIR = ROOT / "annotations"
 WEIGHTS_DIR = TRAINED_MODELS_DIR
 
+# ---------- 分辨率 ----------
+# 实测原生尺寸（2026-07-27）：
+#   3×3 dynamic/imageselect 大图 300×300 → 每格 100×100
+#   4×4 multicaptcha        大图 450×450 → 每格 112×112
+#   训练图块 88% 为 100×100，10% 为 120×120
+# 训练分辨率只需略高于原生尺寸，给骨干网络的 stride 留下采样余量。
+# 把 100px 图块上采样到 320/640 不增加任何信息量：实测 @320 相比 @224
+# 多花 2.3 倍时间只换来 top1 +0.3%，@640 预期为负收益。
+NATIVE_TILE_PIXELS = 112
+DEFAULT_TRAIN_IMGSZ = 160
+# 整图分割输入：4×4 大图 450×450，512 已覆盖且为 32 的整数倍。
+DEFAULT_SEGMENTATION_IMGSZ = 512
+
 
 # ---------- 设备（Apple Silicon → MPS） ----------
 def mps_available() -> bool:
@@ -125,34 +138,35 @@ SEGMENTATION_MODEL_CHOICES = {
     "5": ("yolo26x-seg.pt", "xlarge 资源占用最高"),
 }
 
+# 对照实验围绕原生分辨率（100~112px）展开，不再向上试探 320/640。
 EXPERIMENT_PRESETS = {
-    "m@224": {
-        "model": "yolo26m-cls.pt",
-        "data": str(DATA_DIR),
-        "imgsz": 224,
-        "batch": 32,
-        "name": "recaptcha_v2_m2_224",
-    },
-    "m@320": {
+    "m@128": {
         "model": "yolo26m-cls.pt",
         "data": str(M2_DATA_DIR_320),
-        "imgsz": 320,
-        "batch": 32,
-        "name": "recaptcha_v2_m2_320",
+        "imgsz": 128,
+        "batch": 64,
+        "name": "recaptcha_v3_m_128",
     },
-    "m@640": {
+    "m@160": {
         "model": "yolo26m-cls.pt",
-        "data": str(M2_DATA_DIR_640),
-        "imgsz": 640,
-        "batch": 32,
-        "name": "recaptcha_v2_m2_640",
+        "data": str(M2_DATA_DIR_320),
+        "imgsz": 160,
+        "batch": 64,
+        "name": "recaptcha_v3_m_160",
     },
-    "s@224": {
-        "model": "yolo26s-cls.pt",
-        "data": str(DATA_DIR),
+    "m@224": {
+        "model": "yolo26m-cls.pt",
+        "data": str(M2_DATA_DIR_320),
         "imgsz": 224,
         "batch": 32,
-        "name": "recaptcha_v2_s2_224",
+        "name": "recaptcha_v3_m_224",
+    },
+    "s@160": {
+        "model": "yolo26s-cls.pt",
+        "data": str(M2_DATA_DIR_320),
+        "imgsz": 160,
+        "batch": 64,
+        "name": "recaptcha_v3_s_160",
     },
 }
 
@@ -187,15 +201,15 @@ COMMON_TRAIN_PARAMS = {
 }
 
 # ---------- 训练默认超参（分类） ----------
-# 正式训练默认使用 m@640；菜单输入 320 时会联动数据目录与运行名。
+# 正式训练默认使用 m@160：略高于 112px 原生图块，训练耗时约为 @320 的 1/4。
 DEFAULT_TRAIN = {
     **COMMON_TRAIN_PARAMS,
-    "data": str(M2_DATA_DIR_640),
-    "imgsz": 640,
+    "data": str(M2_DATA_DIR_320),
+    "imgsz": DEFAULT_TRAIN_IMGSZ,
     # device 在 train 时用 pick_device() 再确认一次，避免 import 时 MPS 状态过期。
     "device": DEFAULT_DEVICE,
     "project": str(RUNS_DIR / "classify"),
-    "name": "recaptcha_v2_m2_640",
+    "name": "recaptcha_v3_m_160",
     "exist_ok": False,
     "pretrained": True,
     "verbose": True,
@@ -207,8 +221,9 @@ DEFAULT_TRAIN = {
 DEFAULT_SEGMENTATION_TRAIN = {
     "data": str(SEGMENTATION_DATA_DIR / "data.yaml"),
     "epochs": 80,
-    "batch": 8,
-    "imgsz": 640,
+    # 输入从 640 降到 512 后显存占用下降，batch 可以放大。
+    "batch": 16,
+    "imgsz": DEFAULT_SEGMENTATION_IMGSZ,
     "device": DEFAULT_DEVICE,
     "optimizer": "AdamW",
     "lr0": 0.0005,
@@ -238,53 +253,80 @@ DEFAULT_SEGMENTATION_TRAIN = {
 
 # ---------- 按模型区分的正式训练配置 ----------
 # 分类数据不会预先强制缩放；imgsz 由 Ultralytics 训练器处理。
-# 320/640 目录名用于区分实验数据版本和困难样本批次。
+# 全部模型统一使用原生量级分辨率；数据目录不再随 imgsz 变化。
 MODEL_TRAIN_PROFILES = {
     "yolo26n-cls.pt": {
         "epochs": 50,
-        "batch": 32,
-        "imgsz": 224,
-        "data": str(DATA_DIR),
-        "name": "recaptcha_v2_n2_224",
+        "batch": 64,
+        "imgsz": DEFAULT_TRAIN_IMGSZ,
+        "data": str(M2_DATA_DIR_320),
+        "name": "recaptcha_v3_n_160",
     },
     "yolo26s-cls.pt": {
         "epochs": 50,
-        "batch": 32,
-        "imgsz": 320,
+        "batch": 64,
+        "imgsz": DEFAULT_TRAIN_IMGSZ,
         "data": str(M2_DATA_DIR_320),
-        "name": "recaptcha_v2_s2_320",
+        "name": "recaptcha_v3_s_160",
     },
     "yolo26m-cls.pt": {
         "epochs": 50,
-        "batch": 32,
-        "imgsz": 640,
-        "data": str(M2_DATA_DIR_640),
-        "name": "recaptcha_v2_m2_640",
+        "batch": 64,
+        "imgsz": DEFAULT_TRAIN_IMGSZ,
+        "data": str(M2_DATA_DIR_320),
+        "name": "recaptcha_v3_m_160",
     },
     "yolo26l-cls.pt": {
         "epochs": 50,
         "batch": 32,
-        "imgsz": 640,
-        "data": str(M2_DATA_DIR_640),
-        "name": "recaptcha_v2_l1_640",
+        "imgsz": DEFAULT_TRAIN_IMGSZ,
+        "data": str(M2_DATA_DIR_320),
+        "name": "recaptcha_v3_l_160",
     },
     "yolo26x-cls.pt": {
         "epochs": 50,
         "batch": 32,
-        "imgsz": 640,
-        "data": str(M2_DATA_DIR_640),
-        "name": "recaptcha_v2_x1_640",
+        "imgsz": DEFAULT_TRAIN_IMGSZ,
+        "data": str(M2_DATA_DIR_320),
+        "name": "recaptcha_v3_x_160",
     },
 }
 
 
 def training_data_for_imgsz(imgsz: int) -> Path:
-    """按输入尺寸选择对照数据目录。"""
-    if imgsz <= 224:
-        return DATA_DIR
-    if imgsz <= 320:
-        return M2_DATA_DIR_320
-    return M2_DATA_DIR_640
+    """返回正式训练数据目录。
+
+    历史版本按 imgsz 切换 ``dataset_cls_m2_320`` / ``dataset_cls_m2_640``，
+    但 ``m2_640`` 实际是指向 ``m2_320`` 的符号链接，两者数据完全相同。
+    分辨率由训练器处理，与数据版本无关，因此这里不再随 imgsz 变化。
+    """
+    del imgsz  # 保留参数以兼容旧调用方。
+    return M2_DATA_DIR_320
+
+
+def read_training_imgsz(weight_path: str | Path) -> int | None:
+    """从权重同目录的 ``model_meta.json`` 读取该模型的训练分辨率。
+
+    推理分辨率必须与训练分辨率一致，否则会掉点。返回 ``None`` 表示
+    缺少元数据，由调用方回退到类别默认值。
+    """
+    meta_path = Path(weight_path).parent / "model_meta.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    parameters = meta.get("训练参数")
+    if not isinstance(parameters, dict):
+        return None
+    try:
+        size = int(parameters.get("imgsz"))
+    except (TypeError, ValueError):
+        return None
+    return size if size > 0 else None
 
 
 def _model_scale(model: str | Path) -> str:
@@ -320,7 +362,7 @@ def training_profile_for_model(
     selected_size = int(imgsz)
     result["imgsz"] = selected_size
     result["data"] = str(training_data_for_imgsz(selected_size))
-    result["name"] = f"recaptcha_v2_{_model_scale(model)}2_{selected_size}"
+    result["name"] = f"recaptcha_v3_{_model_scale(model)}_{selected_size}"
     return result
 
 

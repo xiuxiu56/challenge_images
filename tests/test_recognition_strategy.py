@@ -87,3 +87,16 @@ def test_click_plan_passes_adjustable_timing_and_blocks_near_all_selection():
     assert dynamic.click_verify is True
     assert blocked.blocked is True
     assert blocked.strategy == "blocked"
+
+
+def test_parameters_follow_model_training_resolution():
+    """已加载权重时推理分辨率跟随其训练分辨率，避免尺寸错配掉点。"""
+    from challenge_images.config import DEFAULT_TRAIN_IMGSZ
+
+    fallback = parameters_for("balanced", "Crosswalk")
+    assert fallback.classification_imgsz == DEFAULT_TRAIN_IMGSZ
+
+    matched = parameters_for("balanced", "Crosswalk", model_imgsz=320)
+    assert matched.classification_imgsz == 320
+    # 融合链路同样按整格送入分类模型，不再单独降级到 224。
+    assert matched.fusion_classification_imgsz == 320

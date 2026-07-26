@@ -5,11 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..category_map import normalize_dataset_class
+from ..config import DEFAULT_TRAIN_IMGSZ
 
 
 @dataclass(frozen=True)
 class InferenceProfile:
-    """单个目标类别的推理参数。"""
+    """单个目标类别的推理参数。
+
+    ``imgsz`` 仅在权重缺少 ``model_meta.json`` 时作为兜底值使用。
+    正常情况下推理分辨率由 ``config.read_training_imgsz`` 从权重元数据读取，
+    以保证与训练分辨率一致。
+    """
 
     name: str
     top1_threshold: float
@@ -26,7 +32,7 @@ DEFAULT_PROFILE = InferenceProfile(
     candidate_threshold=0.25,
     local_threshold=0.80,
     top_k=3,
-    imgsz=320,
+    imgsz=DEFAULT_TRAIN_IMGSZ,
 )
 
 
@@ -37,8 +43,7 @@ CATEGORY_PROFILES = {
         candidate_threshold=0.30,
         local_threshold=0.65,
         top_k=3,
-        # 现有 m1 模型在 224 下对 Bus+Crosswalk 复合格子更稳定；m2 仍按 320 训练。
-        imgsz=224,
+        imgsz=DEFAULT_TRAIN_IMGSZ,
         allow_multiview=True,
     ),
     "Hydrant": InferenceProfile(
@@ -47,7 +52,7 @@ CATEGORY_PROFILES = {
         candidate_threshold=0.20,
         local_threshold=0.80,
         top_k=3,
-        imgsz=320,
+        imgsz=DEFAULT_TRAIN_IMGSZ,
     ),
     "Car": InferenceProfile(
         name="车辆严格 Top-1",
@@ -55,7 +60,7 @@ CATEGORY_PROFILES = {
         candidate_threshold=1.0,
         local_threshold=1.0,
         top_k=1,
-        imgsz=320,
+        imgsz=DEFAULT_TRAIN_IMGSZ,
     ),
     "Bus": InferenceProfile(
         name="公共汽车严格 Top-1",
@@ -63,7 +68,7 @@ CATEGORY_PROFILES = {
         candidate_threshold=1.0,
         local_threshold=1.0,
         top_k=1,
-        imgsz=320,
+        imgsz=DEFAULT_TRAIN_IMGSZ,
     ),
 }
 

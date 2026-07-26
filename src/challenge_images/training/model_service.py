@@ -9,7 +9,7 @@ import json
 from typing import Any
 
 from ..category_map import class_to_zh, normalize_dataset_class
-from ..config import REPORTS_DIR, pick_device, resolve_model_reference
+from ..config import REPORTS_DIR, pick_device, read_training_imgsz, resolve_model_reference
 from ..grid.grid_engine import GridSpec, split_grid
 from ..runtime_env import prepare_cache_dir
 
@@ -48,6 +48,8 @@ class ModelService:
         self.weights: Path | None = None
         self.model_hash: str | None = None
         self.device = "cpu"
+        # 该权重训练时使用的 imgsz；推理侧据此对齐，None 表示缺少元数据。
+        self.training_imgsz: int | None = None
         self.cache_dir = Path(cache_dir) if cache_dir else REPORTS_DIR / "prediction_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -65,8 +67,15 @@ class ModelService:
         self.weights = loaded_path if loaded_path.is_file() else path
         self.model_hash = self._file_hash(loaded_path) if loaded_path.is_file() else hashlib.sha256(reference.encode()).hexdigest()
         self.device = pick_device(device)
+        self.training_imgsz = read_training_imgsz(self.weights) if self.weights else None
         names = {int(k): str(v) for k, v in (self.model.names or {}).items()}
-        return {"weights": str(self.weights), "device": self.device, "classes": names, "model_hash": self.model_hash}
+        return {
+            "weights": str(self.weights),
+            "device": self.device,
+            "classes": names,
+            "model_hash": self.model_hash,
+            "training_imgsz": self.training_imgsz,
+        }
 
     def predict_grid(
         self,

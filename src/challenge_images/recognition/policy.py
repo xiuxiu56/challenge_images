@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from ..category_map import normalize_dataset_class
+from ..config import DEFAULT_SEGMENTATION_IMGSZ, DEFAULT_TRAIN_IMGSZ
 from ..grid.grid_engine import GridSpec
 from ..training.inference_policy import profile_for
 
@@ -31,14 +32,14 @@ PARAMETER_PRESET_LABELS = {
 class RecognitionParameters:
     """分类、分割和融合共用的一组推理参数。"""
 
-    classification_imgsz: int = 320
+    classification_imgsz: int = DEFAULT_TRAIN_IMGSZ
     classification_top1: float = 0.80
     classification_candidate: float = 0.25
     classification_local: float = 0.80
     classification_top_k: int = 3
     allow_multiview: bool = True
-    fusion_classification_imgsz: int = 224
-    segmentation_imgsz: int = 640
+    fusion_classification_imgsz: int = DEFAULT_TRAIN_IMGSZ
+    segmentation_imgsz: int = DEFAULT_SEGMENTATION_IMGSZ
     segmentation_confidence: float = 0.25
     segmentation_min_cell_ratio: float = 0.002
     segmentation_min_mask_ratio: float = 0.10
@@ -68,16 +69,24 @@ def _bounded(value: float, minimum: float, maximum: float) -> float:
 def parameters_for(
     preset: str,
     target_class: str | None,
+    model_imgsz: int | None = None,
 ) -> RecognitionParameters:
-    """按类别基础配置生成平衡、精度或召回预设。"""
+    """按类别基础配置生成平衡、精度或召回预设。
+
+    ``model_imgsz`` 为已加载权重的训练分辨率。推理分辨率必须与训练一致，
+    因此它优先于类别配置里的 ``imgsz``；缺少模型元数据时才回退类别默认值。
+    """
     profile = profile_for(target_class)
+    classification_imgsz = int(model_imgsz) if model_imgsz else profile.imgsz
     base = RecognitionParameters(
-        classification_imgsz=profile.imgsz,
+        classification_imgsz=classification_imgsz,
         classification_top1=profile.top1_threshold,
         classification_candidate=profile.candidate_threshold,
         classification_local=profile.local_threshold,
         classification_top_k=profile.top_k,
         allow_multiview=profile.allow_multiview,
+        # 融合链路同样按整格送入分类模型，分辨率不再单独降级。
+        fusion_classification_imgsz=classification_imgsz,
     )
     if preset in {"balanced", "custom"}:
         return base

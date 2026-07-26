@@ -1,11 +1,15 @@
 from challenge_images.config import (
     COMMON_TRAIN_PARAMS,
+    DEFAULT_SEGMENTATION_IMGSZ,
     DEFAULT_SEGMENTATION_TRAIN,
     DEFAULT_TRAIN,
+    DEFAULT_TRAIN_IMGSZ,
     EXPERIMENT_PRESETS,
+    NATIVE_TILE_PIXELS,
     available_model_choices,
     model_display_name,
     next_available_run_name,
+    read_training_imgsz,
     resolve_model_reference,
     resolve_segmentation_model_reference,
     training_data_for_imgsz,
@@ -24,8 +28,9 @@ def test_bare_model_name_is_preserved_when_not_local():
 
 
 def test_segmentation_defaults_use_independent_project_and_data():
-    assert DEFAULT_SEGMENTATION_TRAIN["imgsz"] == 640
-    assert DEFAULT_SEGMENTATION_TRAIN["batch"] == 8
+    # 4×4 大图原生 450×450，512 已覆盖；显存下降后批次同步放大。
+    assert DEFAULT_SEGMENTATION_TRAIN["imgsz"] == DEFAULT_SEGMENTATION_IMGSZ == 512
+    assert DEFAULT_SEGMENTATION_TRAIN["batch"] == 16
     assert DEFAULT_SEGMENTATION_TRAIN["epochs"] == 80
     assert str(DEFAULT_SEGMENTATION_TRAIN["data"]).endswith("recaptcha_seg_v1/data.yaml")
     assert str(DEFAULT_SEGMENTATION_TRAIN["project"]).endswith("runs/segment")
@@ -46,7 +51,9 @@ def test_model_display_name_uses_experiment_metadata(tmp_path):
 
 
 def test_second_training_defaults_target_small_objects():
-    assert DEFAULT_TRAIN["imgsz"] == 640
+    # 图块原生尺寸约 100~112px，训练分辨率贴近原生而非向上采样到 320/640。
+    assert DEFAULT_TRAIN["imgsz"] == DEFAULT_TRAIN_IMGSZ == 160
+    assert DEFAULT_TRAIN["imgsz"] > NATIVE_TILE_PIXELS
     assert DEFAULT_TRAIN["batch"] == 32
     assert DEFAULT_TRAIN["epochs"] == 50
     assert DEFAULT_TRAIN["patience"] == 12
@@ -68,14 +75,14 @@ def test_second_training_defaults_target_small_objects():
     assert "cutmix" not in DEFAULT_TRAIN
 
 
-def test_medium_model_presets_use_formal_batch_and_include_640():
-    assert EXPERIMENT_PRESETS["m@224"]["batch"] == 32
-    assert EXPERIMENT_PRESETS["m@320"]["batch"] == 32
-    assert EXPERIMENT_PRESETS["m@640"]["model"] == "yolo26m-cls.pt"
-    assert EXPERIMENT_PRESETS["m@640"]["imgsz"] == 640
-    assert EXPERIMENT_PRESETS["m@640"]["batch"] == 32
-    assert EXPERIMENT_PRESETS["m@640"]["name"] == "recaptcha_v2_m2_640"
-    assert str(EXPERIMENT_PRESETS["m@640"]["data"]).endswith("dataset_cls_m2_640")
+def test_experiment_presets_compare_around_native_resolution():
+    """对照实验围绕原生分辨率展开，不再包含 320/640 的上采样实验。"""
+    sizes = {int(preset["imgsz"]) for preset in EXPERIMENT_PRESETS.values()}
+    assert sizes == {128, 160, 224}
+    assert EXPERIMENT_PRESETS["m@160"]["model"] == "yolo26m-cls.pt"
+    assert EXPERIMENT_PRESETS["m@160"]["name"] == "recaptcha_v3_m_160"
+    # 全部预设共用同一份数据，只有分辨率不同，保证对照有效。
+    assert len({str(preset["data"]) for preset in EXPERIMENT_PRESETS.values()}) == 1
 
 
 def test_model_training_profiles_are_independent():
@@ -83,24 +90,40 @@ def test_model_training_profiles_are_independent():
     medium = training_profile_for_model("/tmp/yolo26m-cls.pt")
     large = training_profile_for_model("yolo26l-cls.pt")
 
-    assert (nano["imgsz"], nano["batch"]) == (224, 32)
-    assert (medium["imgsz"], medium["batch"]) == (640, 32)
-    assert str(medium["data"]).endswith("dataset_cls_m2_640")
-    assert medium["name"] == "recaptcha_v2_m2_640"
-    assert (large["imgsz"], large["batch"]) == (640, 32)
+    assert (nano["imgsz"], nano["batch"]) == (DEFAULT_TRAIN_IMGSZ, 64)
+    assert (medium["imgsz"], medium["batch"]) == (DEFAULT_TRAIN_IMGSZ, 64)
+    assert medium["name"] == "recaptcha_v3_m_160"
+    # 大模型显存占用更高，批次单独降级。
+    assert (large["imgsz"], large["batch"]) == (DEFAULT_TRAIN_IMGSZ, 32)
 
 
-def test_resolution_switches_dataset_and_run_name():
-    profile_320 = training_profile_for_model("yolo26m-cls.pt", imgsz=320)
-    profile_640 = training_profile_for_model("yolo26m-cls.pt", imgsz=640)
+def test_dataset_no_longer_switches_with_resolution():
+    """m2_640 实为指向 m2_320 的符号链接，数据版本与分辨率无关。"""
+    assert training_data_for_imgsz(128).name == "dataset_cls_m2_320"
+    assert training_data_for_imgsz(224).name == "dataset_cls_m2_320"
+    assert training_data_for_imgsz(640).name == "dataset_cls_m2_320"
 
-    assert training_data_for_imgsz(224).name == "dataset_cls_full_57k"
-    assert training_data_for_imgsz(320).name == "dataset_cls_m2_320"
-    assert training_data_for_imgsz(640).name == "dataset_cls_m2_640"
-    assert str(profile_320["data"]).endswith("dataset_cls_m2_320")
-    assert profile_320["name"] == "recaptcha_v2_m2_320"
-    assert str(profile_640["data"]).endswith("dataset_cls_m2_640")
-    assert profile_640["name"] == "recaptcha_v2_m2_640"
+    profile_128 = training_profile_for_model("yolo26m-cls.pt", imgsz=128)
+    profile_224 = training_profile_for_model("yolo26m-cls.pt", imgsz=224)
+    assert profile_128["data"] == profile_224["data"]
+    assert profile_128["name"] == "recaptcha_v3_m_128"
+    assert profile_224["name"] == "recaptcha_v3_m_224"
+
+
+def test_inference_imgsz_follows_model_metadata(tmp_path):
+    """推理分辨率从权重元数据读取，缺少元数据时返回 None 交由上层兜底。"""
+    import json
+
+    model_dir = tmp_path / "recaptcha_v3_m_160"
+    model_dir.mkdir()
+    weight = model_dir / "best.pt"
+    weight.write_bytes(b"model")
+    assert read_training_imgsz(weight) is None
+
+    (model_dir / "model_meta.json").write_text(
+        json.dumps({"训练参数": {"imgsz": 320}}, ensure_ascii=False), encoding="utf-8"
+    )
+    assert read_training_imgsz(weight) == 320
 
 
 def test_public_training_parameters_are_inherited_by_default_config():
