@@ -13,6 +13,7 @@ dependencies = [
     "torch",
     "ultralytics",
     "Pillow",
+    "PyYAML",
     "PySide6",
 ]
 

@@ -2,6 +2,7 @@ torch>=2.3
 numpy>=1.26
 ultralytics>=8.4
 Pillow>=10
+PyYAML>=6
 PySide6>=6.6
 playwright>=1.49
 pytest>=8
