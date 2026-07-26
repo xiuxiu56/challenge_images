@@ -10,12 +10,12 @@ from pathlib import Path
 
 from PIL import Image
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QDoubleValidator, QFont, QImage, QIntValidator, QPixmap
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QLabel, QLineEdit,
-    QAbstractItemView, QGroupBox, QHeaderView, QMainWindow, QMessageBox, QPushButton,
-    QHBoxLayout, QPlainTextEdit, QScrollArea, QSplitter, QGridLayout, QSizePolicy, QTabWidget,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QGroupBox, QMainWindow, QMessageBox, QPushButton,
+    QHBoxLayout, QPlainTextEdit, QSplitter, QSizePolicy, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 from ..config import (
@@ -35,9 +35,10 @@ from ..config import (
 )
 from ..annotation_store import AnnotationStore
 from ..grid.grid_engine import draw_grid, grid_for_challenge, grid_index_from_point, parse_grid, replace_grid_tile, resolve_challenge_grid
-from ..training.model_service import ModelService
+from ..training.model_service import ModelService, TilePrediction
 from ..segmentation.model_service import SegmentationModelService
 from ..segmentation.result_fusion import FUSION_MODE_LABELS
+from ..recognition.engine import RecognitionResult
 from ..recognition import (
     ENGINE_MODE_LABELS,
     PARAMETER_PRESET_LABELS,
@@ -49,7 +50,6 @@ from ..recognition import (
     parameters_for,
 )
 from ..data.sample_manager import SampleManager, write_jsonl
-from ..data.online_stats import scan_online_capture
 from ..online import BrowserSession, OnlineCaptureService
 from ..online.online_worker import (
     AUTO_REFRESH_INTERVAL_SEC,
@@ -67,7 +67,7 @@ from .state import (
 from .theme import APP_STYLESHEET, set_button_role
 from .online_data_tab import OnlineDataTabMixin
 from .settings_tab import SettingsTabMixin
-from .widgets import PREVIEW_MAX_SIZE, NumericLineEdit, _pixmap, _preview_pixmap
+from .widgets import NumericLineEdit, _preview_pixmap
 from .workers import RecognitionWorker
 
 
@@ -105,9 +105,9 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.manager: SampleManager | None = None
         self.current: dict | None = None
         self.image: Image.Image | None = None
-        self.predictions = []
-        self.all_predictions = []
-        self.last_offline_result = None
+        self.predictions: list[TilePrediction] = []
+        self.all_predictions: list[TilePrediction] = []
+        self.last_offline_result: RecognitionResult | None = None
         self._offline_render_indices: list[int] = []
         self.annotation_indices: set[int] = set()
         self.annotation_mode = False
@@ -116,8 +116,8 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.online_sample = None
         self.online_image: Image.Image | None = None
         self.online_image_sha256 = ""
-        self.online_predictions = []
-        self.online_all_predictions = []
+        self.online_predictions: list[TilePrediction] = []
+        self.online_all_predictions: list[TilePrediction] = []
         self.fusion_image: Image.Image | None = None
         self.fusion_image_key = ""
         self.fusion_source = ""
@@ -134,8 +134,10 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.online_worker.clicks_done.connect(self._on_online_clicks_done)
         self.online_worker.stopped.connect(self._on_online_stopped)
         self.online_worker.query_restricted.connect(self._on_online_query_restricted)
-        self.challenge = QComboBox(); self.challenge.addItems(["dynamic", "imageselect", "tileselect", "multicaptcha"])
-        self.grid = QComboBox(); self.grid.addItems(["3×3", "4×4"])
+        self.challenge = QComboBox()
+        self.challenge.addItems(["dynamic", "imageselect", "tileselect", "multicaptcha"])
+        self.grid = QComboBox()
+        self.grid.addItems(["3×3", "4×4"])
         self.data_source = QComboBox()
         self.data_source.addItem("离线图片", "offline")
         self.data_source.addItem("在线图片", "online")
@@ -144,9 +146,11 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.threshold = NumericLineEdit(0.25, 0, 1)
         self.top1_threshold = NumericLineEdit(0.80, 0, 1)
         self.top_k = NumericLineEdit(3, 1, 5, integer=True)
-        self.multiview = QCheckBox("允许人行横道受控多视角"); self.multiview.setChecked(True)
+        self.multiview = QCheckBox("允许人行横道受控多视角")
+        self.multiview.setChecked(True)
         self.multiview_threshold = NumericLineEdit(0.80, 0, 1)
-        self.imgsz = QComboBox(); self.imgsz.addItems(["224", "320", "640"])
+        self.imgsz = QComboBox()
+        self.imgsz.addItems(["224", "320", "640"])
         self.recognition_mode = QComboBox()
         for mode, label in ENGINE_MODE_LABELS.items():
             self.recognition_mode.addItem(label, mode)
@@ -164,22 +168,30 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.auto_verify.setChecked(False)
         self.maximum_selected_ratio = NumericLineEdit(0.90, 0.50, 1.0, decimals=2)
         self._applying_recognition_preset = False
-        self.status_filter = QComboBox(); self.status_filter.addItems(["全部", "未处理", "成功", "失败"])
-        self.deduplicate = QCheckBox("精确去重"); self.deduplicate.setChecked(True)
-        self.online_enabled = QCheckBox("在线识别验证（拿到图后自动跑模型）"); self.online_enabled.setChecked(False)
-        self.auto_click_tiles = QCheckBox("自动点击网页图块"); self.auto_click_tiles.setChecked(False)
+        self.status_filter = QComboBox()
+        self.status_filter.addItems(["全部", "未处理", "成功", "失败"])
+        self.deduplicate = QCheckBox("精确去重")
+        self.deduplicate.setChecked(True)
+        self.online_enabled = QCheckBox("在线识别验证（拿到图后自动跑模型）")
+        self.online_enabled.setChecked(False)
+        self.auto_click_tiles = QCheckBox("自动点击网页图块")
+        self.auto_click_tiles.setChecked(False)
         self.auto_refresh_challenge = QCheckBox("自动刷新挑战（每3秒）")
         self.auto_refresh_challenge.setChecked(False)
         self.monitor_checkbox = QCheckBox("自动点击并监控复选框（关闭后5秒重试）")
         self.monitor_checkbox.setChecked(True)
         self.clear_site_data = QCheckBox("每3分钟清理站点数据（含第三方Cookie）")
         self.clear_site_data.setChecked(False)
-        self.online_category = QLineEdit(); self.online_category.setPlaceholderText("reload 缺失时填写类别，例如 Crosswalk")
+        self.online_category = QLineEdit()
+        self.online_category.setPlaceholderText("reload 缺失时填写类别，例如 Crosswalk")
         self.online_category.setMinimumWidth(180)
-        self.online_type = QComboBox(); self.online_type.addItems(["dynamic", "imageselect", "tileselect", "multicaptcha"])
+        self.online_type = QComboBox()
+        self.online_type.addItems(["dynamic", "imageselect", "tileselect", "multicaptcha"])
         self.online_type.setMinimumWidth(130)
-        self.online_grid = QComboBox(); self.online_grid.addItems(["3×3", "4×4"])
-        self.online_target = QLineEdit(); self.online_target.setPlaceholderText("由 reload 自动填写，例如 Crosswalk")
+        self.online_grid = QComboBox()
+        self.online_grid.addItems(["3×3", "4×4"])
+        self.online_target = QLineEdit()
+        self.online_target.setPlaceholderText("由 reload 自动填写，例如 Crosswalk")
         self.online_status_summary = QLabel("在线状态：未启动")
         self.online_status_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.online_status = QPlainTextEdit()
@@ -209,9 +221,11 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.online_detail.setFont(QFont("Menlo", 11))
         self.online_detail.setObjectName("reportEditor")
         self.online_detail.setPlaceholderText("在线模型识别结果会显示在这里。")
-        self.weights = QComboBox(); self.weights.setEditable(False)
+        self.weights = QComboBox()
+        self.weights.setEditable(False)
         self.weights.setMaxVisibleItems(12)
-        self.fusion_seg_weights = QComboBox(); self.fusion_seg_weights.setEditable(False)
+        self.fusion_seg_weights = QComboBox()
+        self.fusion_seg_weights.setEditable(False)
         self.fusion_seg_weights.setMaxVisibleItems(12)
         self.fusion_seg_weights.setMinimumWidth(240)
         self._populate_models()
@@ -225,7 +239,9 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.online_data.setCursorPosition(0)
         self.online_data.setToolTip("在线采集图片的归档根目录")
         self.target = QLineEdit("自动读取文件夹类别")
-        self.canvas = QLabel("正在加载首张图片…"); self.canvas.setAlignment(Qt.AlignCenter); self.canvas.setMinimumSize(560, 300)
+        self.canvas = QLabel("正在加载首张图片…")
+        self.canvas.setAlignment(Qt.AlignCenter)
+        self.canvas.setMinimumSize(560, 300)
         # 离线数据中 3×3 常为 300×300，4×4 常为 450×450。
         # 忽略 QPixmap 原始尺寸的布局建议，避免 multicaptcha
         # 载入后把左侧画布和整个分栏推大。
@@ -233,14 +249,19 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.canvas.setScaledContents(False)
         self.canvas.setStyleSheet("QLabel { color: #94a3b8; background: #0f172a; border: 1px solid #334155; border-radius: 10px; }")
         self.canvas.setMouseTracking(True)
-        self.canvas.mousePressEvent = self._canvas_click
-        self.image_info = QLabel("图片信息待加载"); self.image_info.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # Qt 允许运行时替换事件处理器；mypy 无法表达这种模式。
+        self.canvas.mousePressEvent = self._canvas_click  # type: ignore[method-assign]
+        self.image_info = QLabel("图片信息待加载")
+        self.image_info.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.image_info.setWordWrap(True)
-        self.detail = QPlainTextEdit(); self.detail.setReadOnly(True); self.detail.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.detail = QPlainTextEdit()
+        self.detail.setReadOnly(True)
+        self.detail.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.detail.setFont(QFont("Menlo", 12))
         self.detail.setObjectName("reportEditor")
         self.detail.setPlaceholderText("识别结果会显示在这里，可直接选择复制。")
-        self.fusion_challenge = QComboBox(); self.fusion_challenge.addItems(["dynamic", "imageselect", "tileselect", "multicaptcha"])
+        self.fusion_challenge = QComboBox()
+        self.fusion_challenge.addItems(["dynamic", "imageselect", "tileselect", "multicaptcha"])
         self.fusion_data_source = QComboBox()
         self.fusion_data_source.addItem("离线图片", "offline")
         self.fusion_data_source.addItem("在线图片", "online")
@@ -251,8 +272,12 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.fusion_grid_label = QLabel("3×3")
         self.fusion_target = QLineEdit("Car")
         self.fusion_target.setMinimumWidth(110)
-        self.fusion_cls_imgsz = QComboBox(); self.fusion_cls_imgsz.addItems(["224", "320", "640"]); self.fusion_cls_imgsz.setCurrentText("224")
-        self.fusion_seg_imgsz = QComboBox(); self.fusion_seg_imgsz.addItems(["320", "640"]); self.fusion_seg_imgsz.setCurrentText("640")
+        self.fusion_cls_imgsz = QComboBox()
+        self.fusion_cls_imgsz.addItems(["224", "320", "640"])
+        self.fusion_cls_imgsz.setCurrentText("224")
+        self.fusion_seg_imgsz = QComboBox()
+        self.fusion_seg_imgsz.addItems(["320", "640"])
+        self.fusion_seg_imgsz.setCurrentText("640")
         self.fusion_seg_confidence = NumericLineEdit(0.25, 0, 1)
         self.fusion_min_cell_ratio = NumericLineEdit(0.002, 0, 1, decimals=4)
         self.fusion_min_mask_ratio = NumericLineEdit(0.10, 0, 1)
@@ -267,7 +292,9 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.fusion_canvas.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.fusion_canvas.setScaledContents(False)
         self.fusion_canvas.setStyleSheet("QLabel { color: #94a3b8; background: #0f172a; border: 1px solid #334155; border-radius: 10px; }")
-        self.fusion_detail = QPlainTextEdit(); self.fusion_detail.setReadOnly(True); self.fusion_detail.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.fusion_detail = QPlainTextEdit()
+        self.fusion_detail.setReadOnly(True)
+        self.fusion_detail.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.fusion_detail.setFont(QFont("Menlo", 11))
         self.fusion_detail.setObjectName("reportEditor")
         self.fusion_detail.setPlaceholderText("分类、分割 mask 和融合结果会显示在这里。")
@@ -278,7 +305,9 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.status.setProperty("role", "status")
         self.counts = QLabel("成功 0 / 失败 0 / 总计 0 / 成功率 0.00%")
         self.counts.setProperty("role", "muted")
-        self._build(); self._refresh_manager(); self.challenge.currentTextChanged.connect(self._challenge_changed)
+        self._build()
+        self._refresh_manager()
+        self.challenge.currentTextChanged.connect(self._challenge_changed)
         self._configure_selector_popups()
         self.online_target.editingFinished.connect(self._apply_online_profile)
         self.online_type.currentTextChanged.connect(self._online_type_changed)
@@ -825,14 +854,15 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
             replacement = Image.open(BytesIO(result.challenge.payload_bytes)).convert("RGB")
             spec = parse_grid(self.online_grid.currentText())
             # 某些轮次会直接返回新整图；只有明显小于整图时才按单格合成。
-            is_full_image = (
-                replacement.width >= self.online_image.width * 0.75
-                and replacement.height >= self.online_image.height * 0.75
+            base_image = self.online_image
+            is_full_image = base_image is not None and (
+                replacement.width >= base_image.width * 0.75
+                and replacement.height >= base_image.height * 0.75
             )
             if is_full_image:
                 self.online_image = replacement
                 update_text = f"已加载点击后整图（触发格子 {index}）"
-            else:
+            elif self.online_image is not None:
                 self.online_image = replace_grid_tile(
                     self.online_image,
                     replacement,
@@ -840,6 +870,8 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
                     index,
                 )
                 update_text = f"已根据 replaceimage ds 将新图回填到格子 {index}"
+            if self.online_image is None:
+                return
             self.online_image_sha256 = hashlib.sha256(self.online_image.tobytes()).hexdigest()
             self.online_predictions = []
             self.online_all_predictions = []
@@ -1246,7 +1278,8 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         try:
             info = self.service.load(selected, DEFAULT_DEVICE)
             self.status.setText(f"模型已加载：{Path(info['weights']).name}，设备={info['device']}")
-        except Exception as exc: QMessageBox.critical(self, "模型加载失败", str(exc))
+        except Exception as exc:
+            QMessageBox.critical(self, "模型加载失败", str(exc))
 
     def _load_online_model(self) -> None:
         selected = self._selected_weight()
@@ -1533,10 +1566,18 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
             self._set_online_status(f"在线模型自动加载失败：{exc}")
 
     def _load(self, sample: dict | None) -> None:
-        if not sample: QMessageBox.information(self, "样本", "当前目录没有样本"); return
-        self.current = sample; self.image = Image.open(sample["path"]).convert("RGB"); self.predictions = []; self.all_predictions = []; self.last_offline_result = None
+        if not sample:
+            QMessageBox.information(self, "样本", "当前目录没有样本")
+            return
+        self.current = sample
+        self.image = Image.open(sample["path"]).convert("RGB")
+        self.predictions = []
+        self.all_predictions = []
+        self.last_offline_result = None
         self.annotation_indices = set((self.annotations.get(sample["path"]) or {}).get("真实格子", []))
-        self.target.setText(str(sample["target_class"])); self._apply_inference_profile(); self._render(sorted(self.annotation_indices))
+        self.target.setText(str(sample["target_class"]))
+        self._apply_inference_profile()
+        self._render(sorted(self.annotation_indices))
         self.image_info.setText(
             f"图片：{self._display_path(sample['path'])}\n"
             f"目标类别：{sample['raw_class']}（{sample['target_class']}）  |  "
@@ -1644,15 +1685,18 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self.status.setText("在线识别结果已复制到剪贴板")
 
     def _next(self) -> None:
-        if self.manager is None: self._refresh_manager()
+        if self.manager is None:
+            self._refresh_manager()
         self._load(self.manager.next_sample() if self.manager else None)
 
     def _random(self) -> None:
-        if self.manager is None: self._refresh_manager()
+        if self.manager is None:
+            self._refresh_manager()
         self._load(self.manager.random_sample() if self.manager else None)
 
     def _render(self, selected: list[int]) -> None:
-        if self.image is None: return
+        if self.image is None:
+            return
         effective_selected = selected or sorted(self.annotation_indices)
         self._offline_render_indices = list(effective_selected)
         rendered = draw_grid(self.image, parse_grid(self.grid.currentText()), effective_selected, [], ASSETS_DIR / "image.png")
@@ -1712,7 +1756,7 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
     def _recognize(self) -> None:
         if self.image is None:
             self._next()
-        if self.image is None:
+        if self.image is None or self.current is None:
             return
         if not self.service.loaded:
             QMessageBox.information(self, "模型", "请先加载模型")
@@ -1833,21 +1877,30 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
 
     def _update_counts(self) -> None:
         import json
-        path = REPORTS_DIR / "gui_results.jsonl"; ok = fail = 0
+        path = REPORTS_DIR / "gui_results.jsonl"
+        ok = fail = 0
         if path.is_file():
             for line in path.read_text(encoding="utf-8").splitlines():
-                try: item = json.loads(line); ok += item.get("status") == "success"; fail += item.get("status") == "failed"
-                except json.JSONDecodeError: pass
-        total = ok + fail; self.counts.setText(f"成功 {ok} / 失败 {fail} / 总计 {total} / 成功率 {(ok / total * 100 if total else 0):.2f}%")
+                try:
+                    item = json.loads(line)
+                    ok += item.get("status") == "success"
+                    fail += item.get("status") == "failed"
+                except json.JSONDecodeError:
+                    pass
+        total = ok + fail
+        self.counts.setText(f"成功 {ok} / 失败 {fail} / 总计 {total} / 成功率 {(ok / total * 100 if total else 0):.2f}%")
 
     def _read_results(self) -> list[dict]:
         import json
         path = REPORTS_DIR / "gui_results.jsonl"
-        if not path.is_file(): return []
+        if not path.is_file():
+            return []
         rows=[]
         for line in path.read_text(encoding="utf-8").splitlines():
-            try: rows.append(json.loads(line))
-            except json.JSONDecodeError: pass
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
         return rows
 
     def _toggle_annotation(self) -> None:
@@ -1875,17 +1928,22 @@ class QtChallengeGUI(QMainWindow, OnlineDataTabMixin, SettingsTabMixin):
         self._render(sorted(self.annotation_indices))
 
     def _save_annotation(self) -> None:
-        if not self.current: return
+        if not self.current:
+            return
         self.annotations.set(self.current["path"], challenge_type=self.challenge.currentText(), grid=self.grid.currentText(), target_class=self.current["target_class"], indices=list(self.annotation_indices))
         self.status.setText(f"已保存真实格子：{sorted(self.annotation_indices)}")
 
     def _scan(self) -> None:
         from ..data.sample_manager import scan_duplicates
-        groups = scan_duplicates(self._active_data_root(), self.challenge.currentText()); count = sum(len(x) - 1 for x in groups.values()); QMessageBox.information(self, "重复扫描", f"重复组：{len(groups)}，重复文件：{count}\nGUI 默认跳过重复，不直接删除。")
+        groups = scan_duplicates(self._active_data_root(), self.challenge.currentText())
+        count = sum(len(x) - 1 for x in groups.values())
+        QMessageBox.information(self, "重复扫描", f"重复组：{len(groups)}，重复文件：{count}\nGUI 默认跳过重复，不直接删除。")
 
 
 def launch_qt_gui(project_root: str | Path = ROOT) -> None:
-    app = QApplication.instance() or QApplication(sys.argv)
+    # instance() 的返回类型是 QCoreApplication；这里始终是 QApplication。
+    existing = QApplication.instance()
+    app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
     app.setFont(QFont("PingFang SC", 13))
     window = QtChallengeGUI(Path(project_root))
     window.show()

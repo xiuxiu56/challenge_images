@@ -93,7 +93,7 @@ def device_status() -> str:
     try:
         import torch
 
-        ver = torch.__version__
+        ver = str(torch.__version__)
     except Exception:
         ver = "未安装"
     mps = mps_available()
@@ -325,7 +325,7 @@ def read_training_imgsz(weight_path: str | Path) -> int | None:
     if not isinstance(parameters, dict):
         return None
     try:
-        size = int(parameters.get("imgsz"))
+        size = int(str(parameters.get("imgsz")))
     except (TypeError, ValueError):
         return None
     return size if size > 0 else None
@@ -351,10 +351,10 @@ def training_profile_for_model(
     """
     model_name = Path(str(model)).name.lower()
     profile = MODEL_TRAIN_PROFILES.get(model_name)
-    result = dict(profile) if profile is not None else {
-        "epochs": int(DEFAULT_TRAIN["epochs"]),
-        "batch": int(DEFAULT_TRAIN["batch"]),
-        "imgsz": int(DEFAULT_TRAIN["imgsz"]),
+    result: dict[str, object] = dict(profile) if profile is not None else {
+        "epochs": int(str(DEFAULT_TRAIN["epochs"])),
+        "batch": int(str(DEFAULT_TRAIN["batch"])),
+        "imgsz": int(str(DEFAULT_TRAIN["imgsz"])),
         "data": str(DEFAULT_TRAIN["data"]),
         "name": str(DEFAULT_TRAIN["name"]),
     }

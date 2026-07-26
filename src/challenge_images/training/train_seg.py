@@ -58,7 +58,7 @@ def train_seg(
     requested_name = str(cfg["name"])
     cfg["name"] = next_available_run_name(
         requested_name,
-        project_dir=cfg["project"],
+        project_dir=str(cfg["project"]),
         trained_dir=SEGMENTATION_TRAINED_DIR,
     )
     cfg["exist_ok"] = False
@@ -87,10 +87,10 @@ def train_seg(
     if task and task != "segment":
         raise ValueError(f"所选权重任务为 {task}，请使用 -seg.pt 分割权重")
     results = yolo.train(**cfg)
-    save_dir = Path(str(getattr(results, "save_dir", Path(cfg["project"]) / cfg["name"])))
+    save_dir = Path(str(getattr(results, "save_dir", Path(str(cfg["project"])) / str(cfg["name"]))))
     best = save_dir / "weights" / "best.pt"
     if not best.is_file():
-        best = Path(cfg["project"]) / cfg["name"] / "weights" / "best.pt"
+        best = Path(str(cfg["project"])) / str(cfg["name"]) / "weights" / "best.pt"
     print(f"训练结束，best 权重：{best if best.is_file() else '未找到'}")
     if not best.is_file():
         return best

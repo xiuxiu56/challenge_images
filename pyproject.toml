@@ -41,3 +41,22 @@ exclude = ["data", "runs", "reports", ".runtime_cache"]
 python_version = "3.10"
 files = ["src/challenge_images"]
 ignore_missing_imports = true
+
+# PySide6 的类型存根没有暴露扁平枚举别名（Qt.ScrollBarAlwaysOff、
+# QPlainTextEdit.NoWrap 等），但它们在运行时完全合法且是 Qt 的惯用写法。
+# 改写成 Qt.ScrollBarPolicy.ScrollBarAlwaysOff 只是为了迁就存根，
+# 反而降低可读性，因此在 GUI 层单独放行这一类错误。
+[[tool.mypy.overrides]]
+module = [
+    "challenge_images.gui.qt_gui",
+    "challenge_images.gui.online_data_tab",
+    "challenge_images.gui.settings_tab",
+    "challenge_images.gui.widgets",
+]
+disable_error_code = ["attr-defined"]
+
+# Tkinter 备用界面使用可选导入降级（无 Tkinter 时把名字置为 None），
+# 这种「同一名字既是类型又可为 None」的模式无法用类型系统表达。
+[[tool.mypy.overrides]]
+module = "challenge_images.gui.gui_app"
+disable_error_code = ["index", "misc"]

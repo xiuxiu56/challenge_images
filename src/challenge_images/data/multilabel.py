@@ -152,11 +152,11 @@ def build_manifest_from_folders(
     digests: dict[str, str] = {}
     for relative, folder_class, path in items:
         try:
-            digest = _digest(path)
+            file_digest = _digest(path)
         except OSError:
             continue
-        digests[relative] = digest
-        by_digest.setdefault(digest, set()).add(folder_class)
+        digests[relative] = file_digest
+        by_digest.setdefault(file_digest, set()).add(folder_class)
 
     overrides: dict[str, list[str]] = {}
     for relative, folder_class, _ in items:

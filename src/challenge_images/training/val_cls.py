@@ -81,9 +81,10 @@ def evaluate_directory(
             stream=False,
         )
         for result in results:
-            if getattr(result, "probs", None) is None:
+            probs = getattr(result, "probs", None)
+            if probs is None:
                 continue
-            pred_idx = int(result.probs.top1)
+            pred_idx = int(probs.top1)
             pred = normalize_dataset_class(names.get(pred_idx, str(pred_idx))) or names.get(pred_idx, str(pred_idx))
             if pred not in matrix[truth]:
                 matrix[truth][pred] = 0
@@ -209,10 +210,11 @@ def predict_cls(
             continue
         top1_idx = int(probs.top1)
         top1_conf = float(probs.top1conf)
-        names = r.names or {}
+        names = getattr(r, "names", None) or {}
         label = names.get(top1_idx, str(top1_idx))
         # 带上中文 + mid，方便对接 recaptcha 词表
-        print(format_predict_line(Path(str(r.path)).name, str(label), top1_conf))
+        source_path = getattr(r, "path", src)
+        print(format_predict_line(Path(str(source_path)).name, str(label), top1_conf))
 
     return results
 

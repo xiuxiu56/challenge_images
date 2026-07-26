@@ -207,6 +207,7 @@ class SegmentationModelService:
         set[int],
     ]:
         """执行一次分割并提取目标类别实例。"""
+        assert self.model is not None  # 调用方已确保已加载
         results = self.model.predict(
             source=image,
             imgsz=int(imgsz),

@@ -17,7 +17,7 @@ def save_training_meta(run_dir: str | Path, *, model: str, config: dict[str, Any
     path.mkdir(parents=True, exist_ok=True)
     try:
         import torch
-        torch_version = torch.__version__
+        torch_version = str(torch.__version__)
     except Exception:
         torch_version = "未知"
     try:
@@ -37,12 +37,15 @@ def compare_runs(project_dir: str | Path = RUNS_DIR / "classify") -> list[dict[s
         try:
             with csv_path.open(newline="", encoding="utf-8") as file:
                 records = list(csv.DictReader(file))
-            if not records: continue
+            if not records:
+                continue
             row: dict[str, Any] = {"实验": csv_path.parent.name, "结果文件": str(csv_path), "轮数": len(records)}
             for key, value in records[-1].items():
                 if key.strip():
-                    try: row[key.strip()] = float(value)
-                    except (TypeError, ValueError): row[key.strip()] = value
+                    try:
+                        row[key.strip()] = float(value)
+                    except (TypeError, ValueError):
+                        row[key.strip()] = value
             rows.append(row)
         except (OSError, csv.Error):
             continue

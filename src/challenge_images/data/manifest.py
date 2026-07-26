@@ -28,7 +28,9 @@ def build_manifest(root: str | Path, kind: str, output: str | Path) -> Path:
             row = {"path": str(path), "kind": kind, "split": relative.parts[0], "label": relative.parts[1] if len(relative.parts) > 1 else ""}
         else:
             row = {"path": str(path), "kind": kind, "challenge_type": relative.parts[0], "label": relative.parts[1] if len(relative.parts) > 1 else ""}
-        row.update({"sha256": sha256_file(path), "width": width, "height": height})
+        row.update(
+            {"sha256": sha256_file(path), "width": str(width), "height": str(height)}
+        )
         rows.append(row)
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)

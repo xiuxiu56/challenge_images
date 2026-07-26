@@ -249,7 +249,7 @@ class OnlineSolveSession:
                     self._emit(f"验证按钮点击失败：{exc}")
             return clicked, []
 
-        clicked: list[int] = []
+        clicked = []
         follow_ups: list[OnlineRoundResult] = []
         per_tile_timeout = max(0.2, watch_after_ms / 1000.0)
 

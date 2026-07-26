@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Callable
 
 # 保证从任意 cwd 启动都能 import 同目录模块
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
@@ -473,7 +474,16 @@ def menu_experiment_preset() -> None:
         print("实验预设编号无效。")
         return
     cfg = EXPERIMENT_PRESETS[names[selected]]
-    train_cls(device=DEFAULT_DEVICE, epochs=DEFAULT_TRAIN["epochs"], **cfg)
+    # 预设值是 dict[str, object]，逐个显式取出以保证类型正确。
+    train_cls(
+        model=str(cfg["model"]),
+        data=str(cfg["data"]),
+        imgsz=int(str(cfg["imgsz"])),
+        batch=int(str(cfg["batch"])),
+        name=str(cfg["name"]),
+        device=DEFAULT_DEVICE,
+        epochs=int(str(DEFAULT_TRAIN["epochs"])),
+    )
 
 
 def menu_export_hard_samples() -> None:
@@ -671,8 +681,16 @@ MPS 注意:
     )
 
 
+class _Quit(Exception):
+    """用退出菜单时抛出，避免把 None 混进动作表。"""
+
+
+def _quit() -> None:
+    raise _Quit
+
+
 def main() -> None:
-    actions = {
+    actions: dict[str, tuple[str, Callable[[], None]]] = {
         "1": ("运行环境与 MPS 检查", menu_environment),
         "2": ("数据集统计 / 类别分布", menu_dataset_info),
         "3": ("查看类别映射表", menu_mapping),
@@ -696,7 +714,7 @@ def main() -> None:
         "20": ("生成多标签清单（识别复合图块）", menu_build_multilabel_manifest),
         "24": ("导出在线解题真值标注", menu_export_solve_labels),
         "21": ("训练多标签分类模型（sigmoid+BCE）", menu_train_multilabel),
-        "18": ("退出", None),
+        "18": ("退出", _quit),
     }
     menu_groups = (
         ("环境与数据", ("1", "2", "3", "4", "5", "19", "20", "24")),
@@ -731,9 +749,6 @@ GUI 模型：训练结束后同步到 models/trained/<运行名称>/best.pt
 --------------------------"""
         )
         choice = _input("请选择", "1")
-        if choice == "18":
-            print("再见。")
-            break
         item = actions.get(choice)
         if not item:
             print("无效选项。")
@@ -741,6 +756,9 @@ GUI 模型：训练结束后同步到 models/trained/<运行名称>/best.pt
         _, fn = item
         try:
             fn()
+        except _Quit:
+            print("再见。")
+            break
         except FileNotFoundError as e:
             print(f"[错误] {e}")
         except KeyboardInterrupt:

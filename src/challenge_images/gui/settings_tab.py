@@ -6,17 +6,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover
+    # mixin 总是被混入 QMainWindow；声明基类让 QMessageBox 等
+    # 需要 QWidget 的调用通过类型检查，运行时仍是普通 mixin。
+    from PySide6.QtWidgets import QWidget as _MixinBase
+else:
+    _MixinBase = object
+
 from PySide6.QtWidgets import QGridLayout
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QScrollArea,
     QTabWidget,
@@ -24,18 +29,73 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..config import model_display_name
-from ..recognition import ENGINE_MODE_LABELS, PARAMETER_PRESET_LABELS
-from ..segmentation.result_fusion import FUSION_MODE_LABELS
-from .widgets import NumericLineEdit
 
 
-class SettingsTabMixin:
+class SettingsTabMixin(_MixinBase):
     """设置配置页：把低频参数集中到一处，避免铺满主界面。
 
     只负责搭建控件；参数的读取与应用仍在主窗口，
     因为它们被三个功能页共用。
     """
+
+    if TYPE_CHECKING:  # pragma: no cover
+        # 以下属性与方法由宿主窗口 QtChallengeGUI 提供。
+        # 显式声明让类型检查通过，同时把隐式耦合变成可读的契约。
+        active_recognition_label: Any
+        auto_click_tiles: Any
+        auto_refresh_challenge: Any
+        auto_verify: Any
+        challenge: Any
+        clear_site_data: Any
+        click_delay: Any
+        data_source: Any
+        deduplicate: Any
+        dynamic_wait_seconds: Any
+        fusion_challenge: Any
+        fusion_cls_imgsz: Any
+        fusion_data_source: Any
+        fusion_grid_label: Any
+        fusion_instance_cls_threshold: Any
+        fusion_instance_confidence: Any
+        fusion_min_cell_ratio: Any
+        fusion_min_mask_ratio: Any
+        fusion_mode: Any
+        fusion_seg_confidence: Any
+        fusion_seg_imgsz: Any
+        fusion_seg_weights: Any
+        fusion_target: Any
+        grid: Any
+        imgsz: Any
+        maximum_selected_ratio: Any
+        monitor_checkbox: Any
+        multiview: Any
+        multiview_threshold: Any
+        offline_data: Any
+        online_category: Any
+        online_data: Any
+        online_enabled: Any
+        online_grid: Any
+        online_stats_kind: Any
+        online_stats_type: Any
+        online_target: Any
+        online_type: Any
+        parameter_preset: Any
+        recognition_mode: Any
+        show_advanced_parameters: Any
+        status_filter: Any
+        tabs: Any
+        target: Any
+        threshold: Any
+        top1_threshold: Any
+        top_k: Any
+        weights: Any
+        def _choose_fusion_seg_weights(self, *args: Any, **kwargs: Any) -> Any: ...
+        def _choose_offline_data(self, *args: Any, **kwargs: Any) -> Any: ...
+        def _choose_online_data(self, *args: Any, **kwargs: Any) -> Any: ...
+        def _choose_weights(self, *args: Any, **kwargs: Any) -> Any: ...
+        def _load_fusion_seg_model(self, *args: Any, **kwargs: Any) -> Any: ...
+        def _load_model(self, *args: Any, **kwargs: Any) -> Any: ...
+        def _selected_source(self, *args: Any, **kwargs: Any) -> Any: ...
 
     def _build_settings_tab(self) -> None:
         """构建公共设置入口，集中管理四个功能页的参数。"""

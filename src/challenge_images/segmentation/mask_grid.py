@@ -138,14 +138,14 @@ def render_mask_overlay(
 ) -> Image.Image:
     """将目标 mask、网格和命中格子叠加到原图。"""
     canvas = image.convert("RGBA")
-    union = np.zeros((canvas.height, canvas.width), dtype=np.uint8)
+    union: np.ndarray = np.zeros((canvas.height, canvas.width), dtype=np.uint8)
     for mask in masks:
         normalized = normalize_mask(mask, canvas.size)
-        union = np.maximum(union, (normalized >= 0.5).astype(np.uint8) * 150)
+        union = np.maximum(union, (normalized >= 0.5).astype(np.uint8) * 150).astype(np.uint8)
     if union.any():
         alpha = Image.fromarray(union, mode="L")
-        color = Image.new("RGBA", canvas.size, (0, 190, 160, 255))
-        canvas = Image.composite(color, canvas, alpha)
+        overlay = Image.new("RGBA", canvas.size, (0, 190, 160, 255))
+        canvas = Image.composite(overlay, canvas, alpha)
 
     draw = ImageDraw.Draw(canvas, "RGBA")
     selected = set(selected_indices)

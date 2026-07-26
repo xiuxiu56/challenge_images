@@ -13,14 +13,16 @@ try:
     from tkinter import BooleanVar, DoubleVar, StringVar, Tk, filedialog, messagebox, ttk
     TK_AVAILABLE = True
 except ModuleNotFoundError:
-    BooleanVar = DoubleVar = StringVar = Tk = filedialog = messagebox = ttk = None
+    # 无 Tkinter 环境下降级：PySide6 才是主 GUI，这里只是兼容备用界面。
+    # mypy 无法表达「同一名字既是类型又可为 None」的可选导入模式。
+    BooleanVar = DoubleVar = StringVar = Tk = filedialog = messagebox = ttk = None  # type: ignore[assignment,misc]
     TK_AVAILABLE = False
 
 from PIL import Image
 if TK_AVAILABLE:
     from PIL import ImageTk
 else:
-    ImageTk = None
+    ImageTk = None  # type: ignore[assignment]
 
 from ..config import ANNOTATIONS_DIR, ASSETS_DIR, CHALLENGE_DIR, DEFAULT_DEVICE, REPORTS_DIR, ROOT, resolve_default_weight
 from ..grid.grid_engine import GridSpec, draw_grid, grid_for_challenge, parse_grid
@@ -247,9 +249,12 @@ class ChallengeGUI:
             for line in path.read_text(encoding="utf-8").splitlines():
                 try:
                     item = json.loads(line)
-                    if item.get("status") == "success": success += 1
-                    elif item.get("status") == "failed": failed += 1
-                except json.JSONDecodeError: continue
+                    if item.get("status") == "success":
+                        success += 1
+                    elif item.get("status") == "failed":
+                        failed += 1
+                except json.JSONDecodeError:
+                    continue
         total = success + failed
         rate = success / total * 100 if total else 0.0
         self.success_var.set(f"成功 {success} / 失败 {failed} / 总计 {total} / 成功率 {rate:.2f}%")
@@ -261,8 +266,10 @@ class ChallengeGUI:
             return []
         rows = []
         for line in path.read_text(encoding="utf-8").splitlines():
-            try: rows.append(json.loads(line))
-            except json.JSONDecodeError: pass
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
         return rows
 
     def _toggle_annotation(self) -> None:
@@ -278,8 +285,10 @@ class ChallengeGUI:
         col = min(spec.columns - 1, max(0, int(event.x / max(width, 1) * spec.columns)))
         row = min(spec.rows - 1, max(0, int(event.y / max(height, 1) * spec.rows)))
         index = row * spec.columns + col
-        if index in self.annotation_indices: self.annotation_indices.remove(index)
-        else: self.annotation_indices.add(index)
+        if index in self.annotation_indices:
+            self.annotation_indices.remove(index)
+        else:
+            self.annotation_indices.add(index)
         self._show(self.current_image, list(self.annotation_indices))
 
     def _save_annotation(self) -> None:

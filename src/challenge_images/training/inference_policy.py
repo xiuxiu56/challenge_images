@@ -204,7 +204,7 @@ def profile_for(
     if challenge_family(challenge_type) != "grid4":
         return base
 
-    group = CONTINUOUS_GROUPS.get(wanted or "")
+    group = CONTINUOUS_GROUPS.get(str(wanted or ""), "")
     adjustment = CONTINUOUS_ADJUSTMENTS.get(group, DEFAULT_CONTINUOUS_ADJUSTMENT)
     candidate = _bounded(base.candidate_threshold + adjustment.candidate_delta, 0.05)
     if adjustment.candidate_ceiling is not None:

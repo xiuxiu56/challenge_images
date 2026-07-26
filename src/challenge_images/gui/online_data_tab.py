@@ -6,6 +6,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover
+    # mixin 总是被混入 QMainWindow；声明基类让 QMessageBox 等
+    # 需要 QWidget 的调用通过类型检查，运行时仍是普通 mixin。
+    from PySide6.QtWidgets import QWidget as _MixinBase
+else:
+    _MixinBase = object
+
 from PySide6.QtWidgets import QApplication, QComboBox, QGridLayout, QMessageBox, QPlainTextEdit, QSplitter
 
 from pathlib import Path
@@ -17,7 +26,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QListWidget,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -29,12 +37,20 @@ from ..data.online_stats import scan_online_capture
 from .theme import set_button_role
 
 
-class OnlineDataTabMixin:
+class OnlineDataTabMixin(_MixinBase):
     """在线图片数据页：按内容哈希统计归档、查看精确重复组。
 
     该页只读，不删除也不移动任何图片；与识别链路完全解耦，
     因此从主窗口抽出为独立 mixin。
     """
+
+    if TYPE_CHECKING:  # pragma: no cover
+        # 以下属性与方法由宿主窗口 QtChallengeGUI 提供。
+        # 显式声明让类型检查通过，同时把隐式耦合变成可读的契约。
+        online_data: Any
+        status: Any
+        tabs: Any
+        def _display_path(self, *args: Any, **kwargs: Any) -> Any: ...
 
     def _build_online_data_tab(self) -> None:
         """构建在线采集图片的只读统计页面。"""

@@ -141,7 +141,7 @@ def replace_grid_tile(
     return canvas
 
 
-def _font(size: int) -> ImageFont.ImageFont:
+def _font(size: int) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
     """尽量使用系统字体；找不到时回退 Pillow 默认字体。"""
     candidates = [
         "/System/Library/Fonts/PingFang.ttc",

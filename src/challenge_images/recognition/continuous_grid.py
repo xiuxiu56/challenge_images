@@ -64,9 +64,9 @@ def refine_continuous_grid(
 
     if len(main) == 2:
         row = main[0] // spec.columns
-        columns = sorted(index % spec.columns for index in main)
-        if columns == [0, 1]:
+        main_column_list = sorted(index % spec.columns for index in main)
+        if main_column_list == [0, 1]:
             refined.add(row * spec.columns + 2)
-        elif columns == [2, 3]:
+        elif main_column_list == [2, 3]:
             refined.add(row * spec.columns + 1)
     return sorted(refined)

@@ -165,7 +165,7 @@ def load_thresholds(path: str | Path | None = None) -> Thresholds:
     if not config_path.is_file():
         return base
     try:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
     except ImportError:
         print(f"[阈值配置] 未安装 PyYAML，忽略 {config_path}，继续使用默认值。")
         return base
