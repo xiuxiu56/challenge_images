@@ -1,0 +1,43 @@
+# 融合与识别阈值覆盖文件。
+# 只需写出要修改的键，其余沿用代码内默认值。
+# 修改后用 tools/regression_eval.py 对照全量样本，不要只看单张图。
+
+mask_evidence:
+  min_overlap_pixels: 20
+  min_cell_ratio: 0.002
+  min_mask_ratio: 0.1
+
+instance_validation:
+  classification_threshold: 0.8
+  confidence_threshold: 0.6
+  recovery_confidence: 0.05
+  strong_classification_rescue: 0.95
+
+motorcycle:
+  fringe_min_cell_ratio: 0.01
+  fringe_min_mask_ratio: 0.02
+  horizontal_expansion_cell_ratio: 0.05
+  horizontal_expansion_mask_ratio: 0.03
+  box_fill_cell_ratio: 0.005
+  box_fill_mask_ratio: 0.005
+  dominant_min_area_ratio: 0.2
+
+bus:
+  major_cell_ratio: 0.05
+  thin_cell_ratio: 0.002
+
+traffic_light:
+  fringe_classification_score: 0.25
+  fringe_mask_ratio: 0.02
+  fringe_cell_ratio: 0.002
+
+classification:
+  candidate_suppressors: {'Crosswalk|Car': 0.4}
+  multiview_targets: ['Crosswalk']
+  multiview_suppressors: ['Car', 'Bridge', 'Bus', 'Crosswalk']
+  multiview_crop_ratios: [0.2, 0.35]
+  multiview_center_inset: 0.1
+
+weak_evidence:
+  weak_classification_threshold: 0.1
+  strong_mask_cell_ratio: 0.01

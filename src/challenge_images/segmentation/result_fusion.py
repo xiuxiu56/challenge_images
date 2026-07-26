@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from math import isqrt
 
 from ..category_map import normalize_dataset_class
+from ..thresholds import THRESHOLDS
 from ..training.model_service import TilePrediction
 from .model_service import (
     SEGMENTATION_RECOVERY_CONFIDENCE,
@@ -21,18 +22,28 @@ FUSION_MODE_LABELS = {
     "consensus": "双证据（精度优先）",
 }
 
-STRONG_CLASSIFICATION_RESCUE_THRESHOLD = 0.95
-MOTORCYCLE_FRINGE_MIN_CELL_RATIO = 0.01
-MOTORCYCLE_FRINGE_MIN_MASK_RATIO = 0.02
-MOTORCYCLE_HORIZONTAL_EXPANSION_CELL_RATIO = 0.05
-MOTORCYCLE_HORIZONTAL_EXPANSION_MASK_RATIO = 0.03
-MOTORCYCLE_BOX_FILL_CELL_RATIO = 0.005
-MOTORCYCLE_BOX_FILL_MASK_RATIO = 0.005
-BUS_MAJOR_CELL_RATIO = 0.05
-BUS_THIN_CELL_RATIO = 0.002
-TRAFFIC_LIGHT_FRINGE_CLASSIFICATION_SCORE = 0.25
-TRAFFIC_LIGHT_FRINGE_MASK_RATIO = 0.02
-DOMINANT_MOTORCYCLE_MIN_AREA_RATIO = 0.20
+# 以下阈值全部来自 challenge_images.thresholds，可通过 config/thresholds.yaml 覆盖。
+# 保留模块级名称是为了不改动既有调用方与测试。
+_MOTORCYCLE = THRESHOLDS.motorcycle
+_BUS = THRESHOLDS.bus
+_TRAFFIC_LIGHT = THRESHOLDS.traffic_light
+_MASK = THRESHOLDS.mask_evidence
+
+STRONG_CLASSIFICATION_RESCUE_THRESHOLD = THRESHOLDS.instance_validation.strong_classification_rescue
+MOTORCYCLE_FRINGE_MIN_CELL_RATIO = _MOTORCYCLE.fringe_min_cell_ratio
+MOTORCYCLE_FRINGE_MIN_MASK_RATIO = _MOTORCYCLE.fringe_min_mask_ratio
+MOTORCYCLE_HORIZONTAL_EXPANSION_CELL_RATIO = _MOTORCYCLE.horizontal_expansion_cell_ratio
+MOTORCYCLE_HORIZONTAL_EXPANSION_MASK_RATIO = _MOTORCYCLE.horizontal_expansion_mask_ratio
+MOTORCYCLE_BOX_FILL_CELL_RATIO = _MOTORCYCLE.box_fill_cell_ratio
+MOTORCYCLE_BOX_FILL_MASK_RATIO = _MOTORCYCLE.box_fill_mask_ratio
+BUS_MAJOR_CELL_RATIO = _BUS.major_cell_ratio
+BUS_THIN_CELL_RATIO = _BUS.thin_cell_ratio
+TRAFFIC_LIGHT_FRINGE_CLASSIFICATION_SCORE = _TRAFFIC_LIGHT.fringe_classification_score
+TRAFFIC_LIGHT_FRINGE_MASK_RATIO = _TRAFFIC_LIGHT.fringe_mask_ratio
+TRAFFIC_LIGHT_FRINGE_CELL_RATIO = _TRAFFIC_LIGHT.fringe_cell_ratio
+DOMINANT_MOTORCYCLE_MIN_AREA_RATIO = _MOTORCYCLE.dominant_min_area_ratio
+MIN_OVERLAP_PIXELS = _MASK.min_overlap_pixels
+RAW_INDEX_MIN_CELL_RATIO = _MASK.min_cell_ratio
 
 
 @dataclass(frozen=True)
@@ -111,7 +122,7 @@ def _instance_indices(
             and minimum_column <= column <= maximum_column
         )
         if (
-            int(cell.overlap_pixels) >= 20
+            int(cell.overlap_pixels) >= MIN_OVERLAP_PIXELS
             and float(cell.cell_ratio) >= MOTORCYCLE_FRINGE_MIN_CELL_RATIO
             and float(cell.mask_ratio) >= MOTORCYCLE_FRINGE_MIN_MASK_RATIO
             and (within_instance_box or linear_instance_extension)
@@ -135,7 +146,7 @@ def _instance_indices(
         if (
             minimum_row <= row <= maximum_row
             and horizontally_adjacent
-            and int(cell.overlap_pixels) >= 20
+            and int(cell.overlap_pixels) >= MIN_OVERLAP_PIXELS
             and float(cell.cell_ratio) >= MOTORCYCLE_HORIZONTAL_EXPANSION_CELL_RATIO
             and float(cell.mask_ratio) >= MOTORCYCLE_HORIZONTAL_EXPANSION_MASK_RATIO
         ):
@@ -151,7 +162,7 @@ def _instance_indices(
         if (
             minimum_row <= row <= maximum_row
             and minimum_column <= column <= maximum_column
-            and int(cell.overlap_pixels) >= 20
+            and int(cell.overlap_pixels) >= MIN_OVERLAP_PIXELS
             and float(cell.cell_ratio) >= MOTORCYCLE_BOX_FILL_CELL_RATIO
             and float(cell.mask_ratio) >= MOTORCYCLE_BOX_FILL_MASK_RATIO
         ):
@@ -181,7 +192,7 @@ def _bus_instance_indices(
     major = {
         int(cell.index)
         for cell in record.instance.cells
-        if int(cell.overlap_pixels) >= 20
+        if int(cell.overlap_pixels) >= MIN_OVERLAP_PIXELS
         and float(cell.cell_ratio) >= BUS_MAJOR_CELL_RATIO
         and int(cell.index) // columns >= primary_row
     }
@@ -207,7 +218,7 @@ def _bus_instance_indices(
                 index in indices
                 or index // columns < primary_row
                 or index // columns not in thin_extension_rows
-                or int(cell.overlap_pixels) < 20
+                or int(cell.overlap_pixels) < MIN_OVERLAP_PIXELS
                 or float(cell.cell_ratio) < BUS_THIN_CELL_RATIO
             ):
                 continue
@@ -265,8 +276,8 @@ def _expand_accepted_instance(
         )
         if (
             vertically_connected
-            and int(cell.overlap_pixels) >= 20
-            and float(cell.cell_ratio) >= 0.002
+            and int(cell.overlap_pixels) >= MIN_OVERLAP_PIXELS
+            and float(cell.cell_ratio) >= TRAFFIC_LIGHT_FRINGE_CELL_RATIO
             and float(cell.mask_ratio) >= TRAFFIC_LIGHT_FRINGE_MASK_RATIO
             and score >= TRAFFIC_LIGHT_FRINGE_CLASSIFICATION_SCORE
         ):
@@ -278,7 +289,7 @@ def _instance_raw_indices(instance: MaskInstancePrediction) -> set[int]:
     raw = {
         int(cell.index)
         for cell in instance.cells
-        if int(cell.overlap_pixels) >= 20 and float(cell.cell_ratio) >= 0.002
+        if int(cell.overlap_pixels) >= MIN_OVERLAP_PIXELS and float(cell.cell_ratio) >= RAW_INDEX_MIN_CELL_RATIO
     }
     return raw or {int(index) for index in instance.selected_indices}
 
@@ -391,10 +402,10 @@ def fuse_predictions(
     target_class: str,
     grid_count: int,
     mode: str = "balanced",
-    weak_classification_threshold: float = 0.10,
-    strong_mask_cell_ratio: float = 0.01,
-    instance_classification_threshold: float = 0.80,
-    instance_confidence_threshold: float = 0.60,
+    weak_classification_threshold: float = THRESHOLDS.weak_evidence.weak_classification_threshold,
+    strong_mask_cell_ratio: float = THRESHOLDS.weak_evidence.strong_mask_cell_ratio,
+    instance_classification_threshold: float = THRESHOLDS.instance_validation.classification_threshold,
+    instance_confidence_threshold: float = THRESHOLDS.instance_validation.confidence_threshold,
 ) -> FusionResult:
     """按所选策略融合分类格子和分割 mask 格子。"""
     if mode not in FUSION_MODE_LABELS:

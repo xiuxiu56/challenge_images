@@ -52,6 +52,14 @@ from challenge_images.data.multilabel import (
     format_manifest_report,
 )
 from challenge_images.training.train_multilabel import train_multilabel
+from challenge_images.tools.regression_eval import (
+    evaluate,
+    format_report,
+    load_cases,
+    save_report,
+)
+from challenge_images.recognition.engine import RecognitionEngine
+from challenge_images.recognition.policy import parameters_for
 from challenge_images.data.segmentation_prelabel import (
     build_segmentation_prelabels,
     format_prelabel_report,
@@ -232,6 +240,55 @@ def menu_segmentation_prelabel() -> None:
     print("\n" + format_prelabel_report(report))
     print(f"\n预标注报告已保存：{output / 'prelabel_report.json'}")
     print("下一步：人工复核多边形边界，并补标上面列出的未覆盖类别，然后选择菜单 16 训练。")
+
+
+def menu_regression_eval() -> None:
+    """对已标注样本跑全量回归评测，改阈值后看影响面而不是只看单张图。"""
+    annotations = Path(_input("标注文件（annotations）", "annotations/grid_annotations.json"))
+    cases = load_cases(annotations)
+    if not cases:
+        print(f"未找到可用样本：{annotations}")
+        print("请先在 GUI 的识别页标注真实格子（标注会写入该文件）。")
+        return
+    default_w = resolve_default_weight()
+    weights = _input("分类权重（weights）", str(default_w) if default_w else "")
+    if not weights:
+        print("未提供权重，取消。")
+        return
+    device = pick_device(_input("推理设备（device：mps/cpu）", DEFAULT_DEVICE))
+    preset = _input("参数方案（balanced/precision/recall）", "balanced").lower()
+
+    classification = ModelService(REPORTS_DIR / "regression_cache")
+    segmentation = SegmentationModelService()
+    classification.load(weights, device)
+    seg_weights = resolve_default_segmentation_weight()
+    if seg_weights is not None:
+        segmentation.load(seg_weights, device)
+    engine = RecognitionEngine(classification, segmentation)
+
+    from PIL import Image
+
+    def recognize(case) -> list[int]:
+        image = Image.open(case.path).convert("RGB")
+        parameters = parameters_for(
+            preset, case.target_class, classification.training_imgsz, case.challenge_type
+        )
+        result = engine.recognize(
+            image,
+            challenge_type=case.challenge_type,
+            spec=case.spec,
+            target_class=case.target_class,
+            requested_mode="smart",
+            parameters=parameters,
+        )
+        return result.indices
+
+    print(f"\n开始评测 {len(cases)} 条样本……")
+    report = evaluate(cases, recognize)
+    print("\n" + format_report(report))
+    output = save_report(report, REPORTS_DIR / "regression_eval.json")
+    print(f"\n回归报告已保存：{output}")
+    print("改动阈值后重跑本菜单，用两份 JSON 对照即可看到影响面。")
 
 
 def menu_train(smoke: bool = False) -> None:
@@ -604,6 +661,7 @@ def main() -> None:
         "12": ("生成数据清单", menu_manifest),
         "13": ("比较历史训练实验", menu_compare_runs),
         "14": ("运行模型对比预设", menu_experiment_preset),
+        "23": ("识别结果回归评测（阈值调优）", menu_regression_eval),
         "15": ("导出困难格子训练素材（待审核）", menu_export_hard_samples),
         "22": ("分割数据预标注（COCO 模型生成候选多边形）", menu_segmentation_prelabel),
         "16": ("训练 YOLO26 实例分割模型", menu_train_segmentation),
@@ -616,7 +674,7 @@ def main() -> None:
     menu_groups = (
         ("环境与数据", ("1", "2", "3", "4", "5", "19", "20")),
         ("分类模型训练与验证", ("6", "7", "21", "8", "9", "10")),
-        ("GUI 与实验管理", ("11", "12", "13", "14", "15")),
+        ("GUI 与实验管理", ("11", "12", "13", "14", "23", "15")),
         ("分割模型与融合", ("22", "16", "17")),
         ("其他", ("18",)),
     )

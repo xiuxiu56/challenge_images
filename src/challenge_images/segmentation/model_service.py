@@ -13,6 +13,7 @@ from PIL import Image
 from ..config import pick_device, resolve_segmentation_model_reference
 from ..grid.grid_engine import GridSpec
 from ..runtime_env import prepare_cache_dir
+from ..thresholds import THRESHOLDS
 from .category_map import segmentation_category_key
 from .mask_grid import (
     CellMaskEvidence,
@@ -23,7 +24,8 @@ from .mask_grid import (
 )
 
 
-SEGMENTATION_RECOVERY_CONFIDENCE = 0.05
+# 来自 challenge_images.thresholds，可通过 config/thresholds.yaml 覆盖。
+SEGMENTATION_RECOVERY_CONFIDENCE = THRESHOLDS.instance_validation.recovery_confidence
 
 
 @dataclass

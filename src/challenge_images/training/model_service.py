@@ -12,17 +12,23 @@ from ..category_map import class_to_zh, normalize_dataset_class
 from ..config import REPORTS_DIR, pick_device, read_training_imgsz, resolve_model_reference
 from ..grid.grid_engine import GridSpec, split_grid
 from ..runtime_env import prepare_cache_dir
+from ..thresholds import THRESHOLDS
 
 
+# 以下均来自 challenge_images.thresholds，可通过 config/thresholds.yaml 覆盖。
+#
 # 局部裁剪适合寻找位于格子下方的人行横道；对 Bus 等依赖完整轮廓的类别，
 # 裁剪容易把烟囱、桥和车辆局部误判为目标，因此默认只为 Crosswalk 启用。
-MULTIVIEW_TARGET_CLASSES = {"Crosswalk"}
+MULTIVIEW_TARGET_CLASSES = set(THRESHOLDS.classification.multiview_targets)
 # 只有完整格子被道路相关大目标压制时才允许局部复核。自行车、摩托车等
 # Top-1 场景曾产生明显误选，因此不使用局部裁剪覆盖它们。
-MULTIVIEW_SUPPRESSOR_CLASSES = {"Car", "Bridge", "Bus", "Crosswalk"}
+MULTIVIEW_SUPPRESSOR_CLASSES = set(THRESHOLDS.classification.multiview_suppressors)
 # Car 图块经常把道路纹理压成第二候选 Crosswalk。该组合使用更严格的完整
 # 格子候选阈值，较弱证据交给局部复核，避免纯 Car 被直接命中。
-CANDIDATE_SUPPRESSOR_THRESHOLDS = {("Crosswalk", "Car"): 0.40}
+CANDIDATE_SUPPRESSOR_THRESHOLDS = {
+    tuple(key.split("|", 1)): value
+    for key, value in THRESHOLDS.classification.candidate_suppressors.items()
+}
 
 
 @dataclass

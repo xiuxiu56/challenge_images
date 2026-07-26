@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from ..grid.grid_engine import GridSpec, grid_edges
+from ..thresholds import THRESHOLDS
 
 
 @dataclass(frozen=True)
@@ -43,9 +44,9 @@ def mask_grid_evidence(
     mask: np.ndarray,
     spec: GridSpec,
     *,
-    min_overlap_pixels: int = 20,
-    min_cell_ratio: float = 0.002,
-    min_mask_ratio: float = 0.10,
+    min_overlap_pixels: int = THRESHOLDS.mask_evidence.min_overlap_pixels,
+    min_cell_ratio: float = THRESHOLDS.mask_evidence.min_cell_ratio,
+    min_mask_ratio: float = THRESHOLDS.mask_evidence.min_mask_ratio,
 ) -> list[CellMaskEvidence]:
     """计算 mask 对每个格子的覆盖比例和最终命中状态。"""
     binary = np.asarray(mask) >= 0.5
