@@ -1184,7 +1184,13 @@ class QtChallengeGUI(QMainWindow):
         if preset != "custom":
             target = target_override or self._current_recognition_target()
             # 已加载权重时按其训练分辨率推理，避免训练/推理尺寸错配。
-            parameters = parameters_for(preset, target, self.service.training_imgsz)
+            # 挑战类型决定 3×3 独立图还是 4×4 连续图，两者阈值策略相反。
+            parameters = parameters_for(
+                preset,
+                target,
+                self.service.training_imgsz,
+                self._current_challenge_type(),
+            )
             self._applying_recognition_preset = True
             try:
                 self.imgsz.setCurrentText(str(parameters.classification_imgsz))
@@ -1228,6 +1234,16 @@ class QtChallengeGUI(QMainWindow):
         if target == "自动读取文件夹类别" and self.current:
             return str(self.current.get("target_class", ""))
         return target
+
+    def _current_challenge_type(self) -> str:
+        """取得当前功能页的挑战类型，用于选择 3×3 / 4×4 参数策略。"""
+        if getattr(self, "tabs", None) is not None:
+            current_tab = self.tabs.currentIndex()
+            if current_tab == 1:
+                return self.online_type.currentText()
+            if current_tab == 3:
+                return self.fusion_challenge.currentText()
+        return self.challenge.currentText()
 
     def _set_advanced_parameters_visible(self, visible: bool) -> None:
         """折叠或展开低频识别阈值，保持小窗口不被表单压扁。"""
@@ -1650,11 +1666,15 @@ class QtChallengeGUI(QMainWindow):
             )
 
     def _challenge_changed(self, value: str) -> None:
-        self.grid.setCurrentText(grid_for_challenge(value).text); self._refresh_manager()
+        self.grid.setCurrentText(grid_for_challenge(value).text)
+        self._refresh_manager()
+        # 3×3 与 4×4 的阈值策略不同，切换题型后重算参数。
+        self._parameter_preset_changed()
 
     def _online_type_changed(self, value: str) -> None:
-        """在线类型手动切换时同步网格默认值。"""
+        """在线类型手动切换时同步网格默认值与识别参数。"""
         self.online_grid.setCurrentText(resolve_challenge_grid(value).text)
+        self._parameter_preset_changed()
 
     @staticmethod
     def _selected_source(combo: QComboBox) -> str:
@@ -1890,8 +1910,9 @@ class QtChallengeGUI(QMainWindow):
         self.fusion_grid_label.setText(grid_for_challenge(challenge_type).text)
 
     def _fusion_challenge_changed(self, _challenge_type: str) -> None:
-        """融合页切换挑战类型后重置独立样本游标。"""
+        """融合页切换挑战类型后重置独立样本游标并重算识别参数。"""
         self.fusion_manager = None
+        self._parameter_preset_changed()
         if self.fusion_image is not None:
             self.fusion_indices = []
             self.fusion_preview_image = None

@@ -70,13 +70,17 @@ def parameters_for(
     preset: str,
     target_class: str | None,
     model_imgsz: int | None = None,
+    challenge_type: str | None = None,
 ) -> RecognitionParameters:
-    """按类别基础配置生成平衡、精度或召回预设。
+    """按「类别 × 挑战类型」基础配置生成平衡、精度或召回预设。
 
     ``model_imgsz`` 为已加载权重的训练分辨率。推理分辨率必须与训练一致，
     因此它优先于类别配置里的 ``imgsz``；缺少模型元数据时才回退类别默认值。
+
+    ``challenge_type`` 决定 3×3 独立图片还是 4×4 连续照片：后者目标横跨
+    多格，边缘格需要从 Top-2/Top-3 召回，不能沿用 3×3 的严格阈值。
     """
-    profile = profile_for(target_class)
+    profile = profile_for(target_class, challenge_type)
     classification_imgsz = int(model_imgsz) if model_imgsz else profile.imgsz
     base = RecognitionParameters(
         classification_imgsz=classification_imgsz,
