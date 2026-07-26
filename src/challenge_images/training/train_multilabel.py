@@ -32,6 +32,11 @@ from ..config import (
     pick_device,
     resolve_model_reference,
 )
+from ..data.class_weights import (
+    compute_positive_weights,
+    count_images_per_class,
+    format_balance_report,
+)
 from ..data.multilabel import MANIFEST_FILENAME, MultiLabelManifest
 from ..runtime_env import prepare_cache_dir
 
@@ -161,7 +166,10 @@ def _build_trainer_class() -> type:
         """多标签分类训练器。"""
 
         def __init__(self, cfg=None, overrides=None, _callbacks=None):
-            super().__init__(cfg, overrides, _callbacks)
+            # balance_classes 不是 Ultralytics 参数，需在交给父类前取出。
+            merged = dict(overrides or {})
+            self.balance_classes = bool(merged.pop("balance_classes", True))
+            super().__init__(cfg, merged, _callbacks)
             self.manifest: MultiLabelManifest | None = None
             self._load_manifest()
 
@@ -186,10 +194,41 @@ def _build_trainer_class() -> type:
                 batch["multi_cls"] = batch["multi_cls"].to(self.device)
             return batch
 
+        def _positive_weight(self) -> "torch.Tensor | None":
+            """按训练集正样本频率计算 pos_weight。
+
+            多标签下每个类别都是独立二分类，稀有类的负样本压倒性多数；
+            不加权时模型学会永远输出负仍能取得极低的 BCE 损失。
+            """
+            root = Path(str(self.args.data)) / "train"
+            if not root.is_dir():
+                return None
+            counts = count_images_per_class(Path(str(self.args.data)), "train")
+            if not counts:
+                return None
+            classes = (
+                list(self.manifest.classes)
+                if self.manifest is not None
+                else sorted(counts)
+            )
+            # 多标签图片同时计入多个类别，正样本总数会略高于图片总数。
+            positive = dict(counts)
+            if self.manifest is not None:
+                for labels in self.manifest.overrides.values():
+                    for label in labels:
+                        positive[label] = positive.get(label, 0)
+            total = sum(counts.values())
+            balance = compute_positive_weights(positive, total, classes=classes)
+            print(format_balance_report(balance, title="多标签 pos_weight"))
+            return torch.tensor(balance.weight_vector(), dtype=torch.float32)
+
         def get_model(self, cfg=None, weights=None, verbose: bool = True):
             model = super().get_model(cfg=cfg, weights=weights, verbose=verbose)
-            # 用二元交叉熵替换官方的 softmax 交叉熵。
-            model.init_criterion = lambda: MultiLabelLoss()  # type: ignore[assignment]
+            # 用二元交叉熵替换官方的 softmax 交叉熵，并按长尾程度加权。
+            pos_weight = self._positive_weight() if self.balance_classes else None
+            if pos_weight is not None:
+                pos_weight = pos_weight.to(self.device)
+            model.init_criterion = lambda: MultiLabelLoss(pos_weight)  # type: ignore[assignment]
             model.criterion = None
             return model
 
@@ -212,6 +251,7 @@ def train_multilabel(
     batch: int | None = None,
     device: str | None = None,
     name: str | None = None,
+    balance_classes: bool = True,
     **extra: Any,
 ) -> Path:
     """训练多标签分类模型，返回 best.pt 路径。
@@ -234,6 +274,7 @@ def train_multilabel(
     cfg["name"] = next_available_run_name(str(cfg["name"]), project_dir=cfg["project"])
     cfg["exist_ok"] = False
     cfg["model"] = resolve_model_reference(model)
+    cfg["balance_classes"] = bool(balance_classes)
 
     data_root = Path(cfg["data"])
     if not data_root.is_dir():
@@ -253,6 +294,7 @@ def train_multilabel(
         print(f"  多标签清单: {manifest_path}（{len(manifest.overrides)} 张多标签图片）")
     print(f"  轮数/批次/尺寸: {cfg['epochs']}/{cfg['batch']}/{cfg['imgsz']}")
     print(f"  判定阈值: {DEFAULT_POSITIVE_THRESHOLD}（每类独立，不再依赖 Top-K）")
+    print(f"  长尾加权: {'启用 pos_weight' if balance_classes else '关闭'}")
     print("=" * 60)
 
     trainer_class = _build_trainer_class()
