@@ -26,6 +26,7 @@ from typing import Any
 
 from ..category_map import class_to_zh, normalize_dataset_class
 from ..config import REPORTS_DIR, pick_device, read_training_imgsz, resolve_model_reference
+from ..data.cache_store import sharded_path
 from ..data.multilabel import MANIFEST_FILENAME, MultiLabelManifest
 from ..grid.grid_engine import GridSpec, split_grid
 from ..runtime_env import prepare_cache_dir
@@ -142,7 +143,7 @@ class MultiLabelModelService:
             key = hashlib.sha256(
                 f"multilabel-v1|{self.model_hash}|{image_key}|{spec.rows}x{spec.columns}|{size}".encode()
             ).hexdigest()
-            cache_path = self.cache_dir / f"{key}.json"
+            cache_path = sharded_path(self.cache_dir, key)
             if cache_path.is_file():
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
                 tiles = [
@@ -169,6 +170,7 @@ class MultiLabelModelService:
             for index, row in enumerate(probabilities)
         ]
         if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(
                 json.dumps(
                     [{"index": tile.index, "probabilities": tile.probabilities} for tile in tiles],

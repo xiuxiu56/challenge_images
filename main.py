@@ -67,6 +67,13 @@ from challenge_images.online.solve_feedback import (
     export_tile_labels,
     format_feedback_report,
 )
+from challenge_images.data.cache_store import (
+    cache_statistics,
+    clear_cache,
+    format_cache_report,
+    migrate_flat_cache,
+    prune_cache,
+)
 from challenge_images.data.segmentation_prelabel import (
     build_segmentation_prelabels,
     format_prelabel_report,
@@ -316,6 +323,60 @@ def menu_export_solve_labels() -> None:
         print(f"跳过 {report.skipped_missing_image} 条（归档中找不到对应图片）")
     print(f"标注文件：{output / 'tile_labels.json'}")
     print("空标签表示纯负样本；该格式可直接用于多标签训练（菜单 21）。")
+
+
+def menu_cache_maintenance() -> None:
+    """推理缓存统计、分片迁移与清理。"""
+    caches = [
+        p for p in sorted(REPORTS_DIR.glob("*cache*")) if p.is_dir()
+    ]
+    if not caches:
+        print("未找到任何推理缓存目录。")
+        return
+    print()
+    total_files = total_mb = 0.0
+    for root in caches:
+        stats = cache_statistics(root)
+        total_files += stats.files
+        total_mb += stats.megabytes
+        print(format_cache_report(stats))
+        print()
+    print(f"合计: {int(total_files)} 个文件，{total_mb:.1f} MB\n")
+
+    print("  1. 迁移未分片文件到子目录")
+    print("  2. 按保留天数清理")
+    print("  3. 按最大文件数清理")
+    print("  4. 清空全部缓存")
+    print("  5. 返回")
+    choice = _input("请选择", "5")
+    if choice == "1":
+        for root in caches:
+            moved = migrate_flat_cache(root)
+            if moved:
+                print(f"  {root.name}: 迁移 {moved} 个文件")
+        print("迁移完成。")
+    elif choice == "2":
+        try:
+            days = float(_input("保留最近多少天", "14"))
+        except ValueError:
+            print("天数必须是数字。")
+            return
+        removed = sum(prune_cache(root, max_age_days=days) for root in caches)
+        print(f"已删除 {removed} 个过期缓存文件。")
+    elif choice == "3":
+        try:
+            limit = int(_input("每个缓存目录最多保留多少个文件", "5000"))
+        except ValueError:
+            print("数量必须是整数。")
+            return
+        removed = sum(prune_cache(root, max_files=limit) for root in caches)
+        print(f"已删除 {removed} 个较旧的缓存文件。")
+    elif choice == "4":
+        if _input("确认清空全部推理缓存（y/n）", "n").lower() in ("y", "yes", "1"):
+            removed = sum(clear_cache(root) for root in caches)
+            print(f"已清空 {removed} 个缓存文件。")
+        else:
+            print("已取消。")
 
 
 def menu_train(smoke: bool = False) -> None:
@@ -706,6 +767,7 @@ def main() -> None:
         "13": ("比较历史训练实验", menu_compare_runs),
         "14": ("运行模型对比预设", menu_experiment_preset),
         "23": ("识别结果回归评测（阈值调优）", menu_regression_eval),
+        "25": ("推理缓存统计与清理", menu_cache_maintenance),
         "15": ("导出困难格子训练素材（待审核）", menu_export_hard_samples),
         "22": ("分割数据预标注（COCO 模型生成候选多边形）", menu_segmentation_prelabel),
         "16": ("训练 YOLO26 实例分割模型", menu_train_segmentation),
@@ -719,7 +781,7 @@ def main() -> None:
     menu_groups = (
         ("环境与数据", ("1", "2", "3", "4", "5", "19", "20", "24")),
         ("分类模型训练与验证", ("6", "7", "21", "8", "9", "10")),
-        ("GUI 与实验管理", ("11", "12", "13", "14", "23", "15")),
+        ("GUI 与实验管理", ("11", "12", "13", "14", "23", "15", "25")),
         ("分割模型与融合", ("22", "16", "17")),
         ("其他", ("18",)),
     )

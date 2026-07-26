@@ -10,6 +10,7 @@ from typing import Any
 
 from ..category_map import class_to_zh, normalize_dataset_class
 from ..config import REPORTS_DIR, pick_device, read_training_imgsz, resolve_model_reference
+from ..data.cache_store import sharded_path
 from ..grid.grid_engine import GridSpec, split_grid
 from ..runtime_env import prepare_cache_dir
 from ..thresholds import THRESHOLDS
@@ -99,7 +100,7 @@ class ModelService:
         cache_key = None
         if image_key:
             cache_key = hashlib.sha256(f"topk-v2|{self.model_hash}|{image_key}|{spec.rows}x{spec.columns}|{imgsz}".encode()).hexdigest()
-            cache_path = self.cache_dir / f"{cache_key}.json"
+            cache_path = sharded_path(self.cache_dir, cache_key)
             if cache_path.is_file():
                 items = [TilePrediction(**item) for item in json.loads(cache_path.read_text(encoding="utf-8"))]
                 return self.select_target(items, threshold, target_class, top_k) if selected_only else items
@@ -147,7 +148,9 @@ class ModelService:
                 )
             )
         if cache_key:
-            (self.cache_dir / f"{cache_key}.json").write_text(json.dumps([item.__dict__ for item in predictions], ensure_ascii=False), encoding="utf-8")
+            output = sharded_path(self.cache_dir, cache_key)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps([item.__dict__ for item in predictions], ensure_ascii=False), encoding="utf-8")
         return self.select_target(predictions, threshold, target_class, top_k) if selected_only else predictions
 
     def predict_grid_multiview(
@@ -177,7 +180,7 @@ class ModelService:
             cache_key = hashlib.sha256(
                 f"multiview-v1|{self.model_hash}|{image_key}|{spec.rows}x{spec.columns}|{imgsz}|{wanted}".encode()
             ).hexdigest()
-            cache_path = self.cache_dir / f"{cache_key}.json"
+            cache_path = sharded_path(self.cache_dir, cache_key)
             if cache_path.is_file():
                 return [
                     TilePrediction(**item)
@@ -255,6 +258,7 @@ class ModelService:
             predictions.append(base)
 
         if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(
                 json.dumps([item.__dict__ for item in predictions], ensure_ascii=False),
                 encoding="utf-8",
