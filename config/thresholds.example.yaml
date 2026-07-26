@@ -38,6 +38,9 @@ classification:
   multiview_crop_ratios: [0.2, 0.35]
   multiview_center_inset: 0.1
 
+continuous_grid:
+  isolated_min_score: 0.7
+
 weak_evidence:
   weak_classification_threshold: 0.1
   strong_mask_cell_ratio: 0.01

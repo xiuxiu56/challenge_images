@@ -116,6 +116,16 @@ class ClassificationThresholds:
 
 
 @dataclass(frozen=True)
+class ContinuousGridThresholds:
+    """4×4 连续照片的形态学收敛。"""
+
+    # 孤立单格（四邻接下没有任何相邻选中格）需要达到的分类概率。
+    # 成片格子有连通性背书，孤立格只能靠自身证据；低于此值判为误检。
+    # 仅在同时存在更大连通块时才生效，避免整图只有一个小目标时误删。
+    isolated_min_score: float = 0.70
+
+
+@dataclass(frozen=True)
 class FusionWeakEvidenceThresholds:
     """分割未产生实例明细时的旧格式弱证据融合。"""
 
@@ -135,6 +145,9 @@ class Thresholds:
     bus: BusThresholds = field(default_factory=BusThresholds)
     traffic_light: TrafficLightThresholds = field(default_factory=TrafficLightThresholds)
     classification: ClassificationThresholds = field(default_factory=ClassificationThresholds)
+    continuous_grid: ContinuousGridThresholds = field(
+        default_factory=ContinuousGridThresholds
+    )
     weak_evidence: FusionWeakEvidenceThresholds = field(
         default_factory=FusionWeakEvidenceThresholds
     )

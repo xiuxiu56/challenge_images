@@ -140,7 +140,13 @@ class RecognitionEngine:
             preview = segmentation.preview
         else:
             indices = sorted(item.index for item in selected_classification)
-            indices = refine_continuous_grid(target_class, spec, indices)
+            # 把每格对目标类别的概率一并交给形态学收敛：4×4 下孤立单格
+            # 没有连通性背书，需要更强的自身证据才保留。
+            scores = {
+                item.index: float(item.target_confidence or 0.0)
+                for item in selected_classification
+            }
+            indices = refine_continuous_grid(target_class, spec, indices, scores=scores)
             preview = image
 
         by_index = {item.index: item for item in all_predictions}
