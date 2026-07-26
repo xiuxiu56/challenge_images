@@ -83,3 +83,28 @@ def attach_class_weights(model: Any, data_dir: str | Path) -> ClassBalance | Non
 
     model.add_callback("on_train_start", _on_train_start)
     return balance
+
+
+def attach_domain_augment(model: Any, config: Any = None) -> None:
+    """给单标签训练的训练集注入域增强。
+
+    Ultralytics 的 ``ClassificationDataset`` 在构造时就定好了
+    ``torch_transforms``，因此在 ``on_train_start``（数据加载器已建好、
+    尚未开始取数据）时插入。只改训练集，验证集必须保持确定性，
+    否则每轮验证结果都会抖动，指标失去可比性。
+    """
+    from ..data.domain_augment import DomainAugmentConfig, describe, inject_domain_augment
+
+    settings = config or DomainAugmentConfig()
+
+    def _on_train_start(trainer: Any) -> None:
+        loader = getattr(trainer, "train_loader", None)
+        dataset = getattr(loader, "dataset", None)
+        transforms = getattr(dataset, "torch_transforms", None)
+        if transforms is None:
+            print("[域增强] 未找到训练集变换，本次跳过。")
+            return
+        inject_domain_augment(transforms, settings)
+        print(describe(settings))
+
+    model.add_callback("on_train_start", _on_train_start)

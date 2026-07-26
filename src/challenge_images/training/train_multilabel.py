@@ -37,6 +37,7 @@ from ..data.class_weights import (
     count_images_per_class,
     format_balance_report,
 )
+from ..data.domain_augment import DomainAugmentConfig, describe, inject_domain_augment
 from ..data.multilabel import MANIFEST_FILENAME, MultiLabelManifest
 from ..runtime_env import prepare_cache_dir
 
@@ -56,8 +57,11 @@ def _build_dataset_class() -> type:
         ``__getitem__`` 只在原有返回值上补一个 ``multi_cls`` 字段。
         """
 
-        def __init__(self, root, args, augment=False, prefix="", manifest=None):
+        def __init__(self, root, args, augment=False, prefix="", manifest=None, domain=None):
             super().__init__(root=root, args=args, augment=augment, prefix=prefix)
+            # 仅训练集注入域增强；验证集必须保持确定性。
+            if augment and domain is not None:
+                inject_domain_augment(self.torch_transforms, domain)
             self.manifest: MultiLabelManifest | None = manifest
             self._num_classes = (
                 len(manifest.classes)
@@ -169,6 +173,9 @@ def _build_trainer_class() -> type:
             # balance_classes 不是 Ultralytics 参数，需在交给父类前取出。
             merged = dict(overrides or {})
             self.balance_classes = bool(merged.pop("balance_classes", True))
+            self.domain_augment = (
+                DomainAugmentConfig() if merged.pop("domain_augment", True) else None
+            )
             super().__init__(cfg, merged, _callbacks)
             self.manifest: MultiLabelManifest | None = None
             self._load_manifest()
@@ -186,6 +193,7 @@ def _build_trainer_class() -> type:
                 augment=mode == "train",
                 prefix=mode,
                 manifest=self.manifest,
+                domain=self.domain_augment,
             )
 
         def preprocess_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
@@ -252,6 +260,7 @@ def train_multilabel(
     device: str | None = None,
     name: str | None = None,
     balance_classes: bool = True,
+    domain_augment: bool = True,
     **extra: Any,
 ) -> Path:
     """训练多标签分类模型，返回 best.pt 路径。
@@ -275,6 +284,7 @@ def train_multilabel(
     cfg["exist_ok"] = False
     cfg["model"] = resolve_model_reference(model)
     cfg["balance_classes"] = bool(balance_classes)
+    cfg["domain_augment"] = bool(domain_augment)
 
     data_root = Path(cfg["data"])
     if not data_root.is_dir():
@@ -295,6 +305,7 @@ def train_multilabel(
     print(f"  轮数/批次/尺寸: {cfg['epochs']}/{cfg['batch']}/{cfg['imgsz']}")
     print(f"  判定阈值: {DEFAULT_POSITIVE_THRESHOLD}（每类独立，不再依赖 Top-K）")
     print(f"  长尾加权: {'启用 pos_weight' if balance_classes else '关闭'}")
+    print(f"  {describe(DomainAugmentConfig() if domain_augment else DomainAugmentConfig.disabled())}")
     print("=" * 60)
 
     trainer_class = _build_trainer_class()

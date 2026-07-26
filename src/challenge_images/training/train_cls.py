@@ -21,7 +21,7 @@ from ..config import (
 )
 from ..runtime_env import prepare_cache_dir
 from .experiment import save_training_meta
-from .class_balance import attach_class_weights
+from .class_balance import attach_class_weights, attach_domain_augment
 from .macro_f1 import BEST_MACRO_F1_WEIGHT, HISTORY_FILENAME, attach_macro_f1_selection
 
 
@@ -36,6 +36,7 @@ def train_cls(
     smoke: bool = False,
     resume: bool = False,
     balance_classes: bool = True,
+    domain_augment: bool = True,
     **extra: Any,
 ) -> Path:
     """
@@ -111,6 +112,7 @@ def train_cls(
     )
     print(f"  冒烟训练（smoke）:   {smoke}")
     print(f"  类别权重: {'启用（缓解 550 倍长尾）' if balance_classes else '关闭'}")
+    print(f"  域增强: {'启用（JPEG/降采样/模糊/亮度对比度）' if domain_augment else '关闭'}")
     print("=" * 60)
 
     if resume:
@@ -122,12 +124,16 @@ def train_cls(
         tracker = attach_macro_f1_selection(yolo)
         if balance_classes:
             attach_class_weights(yolo, data_path)
+        if domain_augment:
+            attach_domain_augment(yolo)
         results = yolo.train(resume=True)
     else:
         yolo = YOLO(resolve_model_reference(model))
         tracker = attach_macro_f1_selection(yolo)
         if balance_classes:
             attach_class_weights(yolo, data_path)
+        if domain_augment:
+            attach_domain_augment(yolo)
         results = yolo.train(**cfg)
     print(f"[macro-F1] {tracker.summary()}")
 
