@@ -248,14 +248,48 @@ def test_recognition_buttons_disable_while_busy(qt_app):
 
 
 def test_mixins_provide_extracted_tabs(qt_app):
-    """在线数据页与设置页已抽成 mixin，主窗口仍应具备其方法。"""
+    """四个功能页已抽成 mixin，主窗口仍应具备全部方法。"""
+    from challenge_images.gui.fusion_tab import FusionTabMixin
     from challenge_images.gui.online_data_tab import OnlineDataTabMixin
+    from challenge_images.gui.online_tab import OnlineTabMixin
     from challenge_images.gui.qt_gui import QtChallengeGUI
     from challenge_images.gui.settings_tab import SettingsTabMixin
 
-    assert issubclass(QtChallengeGUI, OnlineDataTabMixin)
-    assert issubclass(QtChallengeGUI, SettingsTabMixin)
-    for method in ("_refresh_online_stats", "_show_online_duplicate_detail"):
-        assert hasattr(QtChallengeGUI, method)
-    for method in ("_build_settings_tab", "_build_fusion_settings"):
-        assert hasattr(QtChallengeGUI, method)
+    for mixin in (OnlineTabMixin, OnlineDataTabMixin, FusionTabMixin, SettingsTabMixin):
+        assert issubclass(QtChallengeGUI, mixin), mixin.__name__
+
+    expected = {
+        "_refresh_online_stats", "_show_online_duplicate_detail",   # 在线数据页
+        "_build_settings_tab", "_build_fusion_settings",            # 设置页
+        "_build_online_tab", "_recognize_online", "_show_online_sample",  # 在线采集页
+        "_build_segmentation_tab", "_recognize_fusion", "_render_fusion_preview",  # 融合页
+    }
+    for method in expected:
+        assert hasattr(QtChallengeGUI, method), method
+
+
+def test_recognition_dispatch_covers_every_page(qt_app):
+    """三条识别链路的结果处理函数都必须存在，否则结果会被静默丢弃。"""
+    from challenge_images.gui.qt_gui import QtChallengeGUI
+
+    for method in (
+        "_apply_offline_result",
+        "_apply_online_result",
+        "_apply_fusion_result",
+        "_submit_recognition",
+        "_compose_report",
+    ):
+        assert hasattr(QtChallengeGUI, method), method
+
+
+def test_main_window_stays_under_line_budget():
+    """主窗口只应保留骨架与离线页；功能页逻辑必须留在各自 mixin 中。
+
+    原本 2429 行的 God Object 已拆到 1100 行以内，这条断言防止回退。
+    """
+    from pathlib import Path
+
+    import challenge_images.gui.qt_gui as module
+
+    lines = Path(module.__file__).read_text(encoding="utf-8").splitlines()
+    assert len(lines) < 1200, f"qt_gui.py 已增长到 {len(lines)} 行，考虑继续拆分"

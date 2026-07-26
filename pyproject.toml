@@ -50,7 +50,9 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = [
     "challenge_images.gui.qt_gui",
+    "challenge_images.gui.online_tab",
     "challenge_images.gui.online_data_tab",
+    "challenge_images.gui.fusion_tab",
     "challenge_images.gui.settings_tab",
     "challenge_images.gui.widgets",
 ]
