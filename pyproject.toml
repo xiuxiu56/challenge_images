@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "challenge-images"
+version = "0.1.0"
+description = "YOLO26 图像分类训练与挑战大图网格验证工具"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "torch",
+    "ultralytics",
+    "Pillow",
+    "PySide6",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+quality = ["ruff", "mypy"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-p no:rerunfailures"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = ["data", "runs", "reports", ".runtime_cache"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/challenge_images"]
+ignore_missing_imports = true

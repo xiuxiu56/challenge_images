@@ -1,0 +1,40 @@
+# ---------- Python ----------
+__pycache__/
+*.pyc
+.runtime_cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- macOS ----------
+.DS_Store
+
+# ---------- 训练产物与报告 ----------
+runs/
+reports/
+annotations/
+
+# ---------- 模型权重 ----------
+# 根目录预训练权重（yolo26*.pt，约 84MB）不入库
+/*.pt
+models/pretrained/*.pt
+models/trained/
+models/segmentation/pretrained/*.pt
+models/segmentation/trained/
+weights/
+
+# ---------- 数据集 ----------
+# data/ 体量约 3.8G，整体不入库；只保留分割数据模板等少量文本文件。
+data/*
+!data/segmentation/
+data/segmentation/*
+!data/segmentation/recaptcha_seg_v1/
+data/segmentation/recaptcha_seg_v1/*
+!data/segmentation/recaptcha_seg_v1/README.md
+!data/segmentation/recaptcha_seg_v1/data.yaml.example
+
+# ---------- 压缩包 ----------
+*.zip
+*.7z
+*.tar
+*.tar.gz

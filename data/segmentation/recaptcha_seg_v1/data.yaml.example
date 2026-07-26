@@ -1,0 +1,20 @@
+# 准备好分割图片和多边形标签后，将本文件复制为 data.yaml。
+# path 相对于 data.yaml 所在目录，避免从不同工作目录启动时重复拼接路径。
+path: .
+train: images/train
+val: images/val
+
+names:
+  0: Bicycle
+  1: Bridge
+  2: Bus
+  3: Car
+  4: Chimney
+  5: Crosswalk
+  6: Hydrant
+  7: Motorcycle
+  8: Mountain
+  9: Palm
+  10: Stair
+  11: Tractor
+  12: Traffic Light
