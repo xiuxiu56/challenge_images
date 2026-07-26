@@ -60,6 +60,12 @@ from challenge_images.tools.regression_eval import (
 )
 from challenge_images.recognition.engine import RecognitionEngine
 from challenge_images.recognition.policy import parameters_for
+from challenge_images.online.solve_feedback import (
+    FEEDBACK_FILENAME,
+    SolveFeedbackStore,
+    export_tile_labels,
+    format_feedback_report,
+)
 from challenge_images.data.segmentation_prelabel import (
     build_segmentation_prelabels,
     format_prelabel_report,
@@ -289,6 +295,26 @@ def menu_regression_eval() -> None:
     output = save_report(report, REPORTS_DIR / "regression_eval.json")
     print(f"\n回归报告已保存：{output}")
     print("改动阈值后重跑本菜单，用两份 JSON 对照即可看到影响面。")
+
+
+def menu_export_solve_labels() -> None:
+    """把通过的挑战导出为图块级真值标注。"""
+    store = SolveFeedbackStore(ONLINE_CAPTURE_DIR / FEEDBACK_FILENAME)
+    print("\n" + format_feedback_report(store))
+    usable = store.usable_records()
+    if not usable:
+        print("\n开启在线会话并完成若干次验证后，本菜单即可导出真值标注。")
+        return
+    output = Path(_input("输出目录（output）", str(DATA_DIR.parent / "online_tile_labels")))
+    report = export_tile_labels(usable, ONLINE_CAPTURE_DIR, output)
+    print(f"\n已导出 {report.total_tiles} 个图块："
+          f"正样本 {report.positive_tiles}，负样本 {report.negative_tiles}")
+    for name, count in sorted(report.per_class.items(), key=lambda item: -item[1]):
+        print(f"  {name:<16}{count}")
+    if report.skipped_missing_image:
+        print(f"跳过 {report.skipped_missing_image} 条（归档中找不到对应图片）")
+    print(f"标注文件：{output / 'tile_labels.json'}")
+    print("空标签表示纯负样本；该格式可直接用于多标签训练（菜单 21）。")
 
 
 def menu_train(smoke: bool = False) -> None:
@@ -668,11 +694,12 @@ def main() -> None:
         "17": ("分类 + 分割 mask 融合验证", menu_segmentation_fusion),
         "19": ("分层重划 train/val（每类保底验证样本）", menu_stratified_split),
         "20": ("生成多标签清单（识别复合图块）", menu_build_multilabel_manifest),
+        "24": ("导出在线解题真值标注", menu_export_solve_labels),
         "21": ("训练多标签分类模型（sigmoid+BCE）", menu_train_multilabel),
         "18": ("退出", None),
     }
     menu_groups = (
-        ("环境与数据", ("1", "2", "3", "4", "5", "19", "20")),
+        ("环境与数据", ("1", "2", "3", "4", "5", "19", "20", "24")),
         ("分类模型训练与验证", ("6", "7", "21", "8", "9", "10")),
         ("GUI 与实验管理", ("11", "12", "13", "14", "23", "15")),
         ("分割模型与融合", ("22", "16", "17")),

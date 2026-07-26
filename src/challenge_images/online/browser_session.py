@@ -419,6 +419,53 @@ class BrowserSession:
                 continue
         return False
 
+    def checkbox_is_checked(self) -> bool:
+        """anchor 复选框是否已勾选，即本轮验证是否已通过。"""
+        page = self._page
+        if page is None:
+            return False
+        for frame_sel in (
+            'iframe[src*="anchor"]',
+            'iframe[title*="reCAPTCHA"]',
+            'iframe[src*="recaptcha"]',
+        ):
+            try:
+                checkbox = page.frame_locator(frame_sel).locator("#recaptcha-anchor").first
+                if not checkbox.is_visible():
+                    continue
+                return checkbox.get_attribute("aria-checked") == "true"
+            except Exception:
+                continue
+        return False
+
+    def detect_solve_outcome(self, *, settle_sec: float = 1.5) -> str:
+        """点击验证后判定本轮结果。
+
+        判定依据只读 DOM，不发任何额外请求：
+
+        - 图形挑战已关闭且复选框已勾选 → 通过
+        - 图形挑战仍然打开 → 未通过（或多步骤挑战进入下一步）
+        - 其余情况无法确定，返回未知，调用方不应据此标注
+
+        返回值取自 ``solve_feedback`` 中的 OUTCOME_* 常量。
+        """
+        from .solve_feedback import OUTCOME_FAILED, OUTCOME_PASSED, OUTCOME_UNKNOWN
+
+        if self._page is None:
+            return OUTCOME_UNKNOWN
+        # 验证结果需要一点时间落到 DOM 上。
+        deadline = time.time() + max(0.0, settle_sec)
+        while time.time() < deadline:
+            if self.checkbox_is_checked():
+                return OUTCOME_PASSED
+            time.sleep(0.15)
+        try:
+            if self.is_graphic_challenge_open():
+                return OUTCOME_FAILED
+        except Exception:
+            return OUTCOME_UNKNOWN
+        return OUTCOME_PASSED if self.checkbox_is_checked() else OUTCOME_UNKNOWN
+
     def automated_query_restriction_message(self) -> str | None:
         """检查主页和所有 iframe 是否出现自动查询限制提示。"""
         page = self._page

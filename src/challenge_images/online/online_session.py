@@ -8,8 +8,15 @@ from typing import Any, Callable
 
 from PIL import Image
 
+from ..config import ONLINE_CAPTURE_DIR
 from ..grid.grid_engine import GridSpec, replace_grid_tile
 from .browser_session import BrowserSession, CapturedChallenge, detect_image_ext
+from .solve_feedback import (
+    FEEDBACK_FILENAME,
+    OUTCOME_UNKNOWN,
+    SolveFeedbackStore,
+    SolveRecord,
+)
 from .capture_service import (
     ARCHIVE_FULL_CHALLENGE,
     ARCHIVE_REPLACEMENT_TILE,
@@ -50,6 +57,11 @@ class OnlineSolveSession:
         # dynamic 单格图可能在主动等待窗口后才到达；
         # 保留格子索引，让空闲监听仍能正确回填。
         self._pending_replacements: list[tuple[int, int, int]] = []
+        # 解题反馈：通过的挑战可直接产出图块级真值标注。
+        self.feedback = SolveFeedbackStore(ONLINE_CAPTURE_DIR / FEEDBACK_FILENAME)
+        # 最近一次完整挑战图与其网格，供记录反馈时关联。
+        self._last_full_sample: OnlineSample | None = None
+        self._last_grid: tuple[int, int] = (3, 3)
         if on_status and self.browser.on_status is None:
             self.browser.on_status = on_status
 
@@ -194,6 +206,10 @@ class OnlineSolveSession:
             source_tile_id=source_tile_id,
             source_tile_index=source_tile_index,
         )
+        if archive_kind == ARCHIVE_FULL_CHALLENGE:
+            # 记住当前整图，点击验证后据此写入图块级真值。
+            self._last_full_sample = sample
+            self._last_grid = (challenge.grid_rows, challenge.grid_cols)
         kind_text = "replaceimage 单格图" if archive_kind == ARCHIVE_REPLACEMENT_TILE else "完整挑战图"
         self._emit(
             f"{kind_text}已归档：{sample.challenge_type} / "
@@ -290,9 +306,47 @@ class OnlineSolveSession:
                 self.browser.click_verify()
             except Exception as exc:
                 self._emit(f"验证按钮点击失败：{exc}")
+            else:
+                self._record_solve_outcome(clicked)
         if clicked and not follow_ups and watch_after_ms > 0:
             self._emit("点击后未收到单格新图（会话仍保持持续监听）")
         return clicked, follow_ups
+
+    def _record_solve_outcome(self, clicked: list[int]) -> SolveRecord | None:
+        """点击验证后记录本轮结果，供后续自动标注使用。
+
+        只有通过的挑战才是可信真值：点击的格子含目标、未点击的不含。
+        未通过时无法区分点错与漏点，记录下来但不参与标注。
+        """
+        sample = self._last_full_sample
+        if sample is None:
+            return None
+        try:
+            outcome = self.browser.detect_solve_outcome()
+        except Exception as exc:
+            self._emit(f"解题结果判定失败：{exc}")
+            outcome = OUTCOME_UNKNOWN
+        rows, cols = self._last_grid
+        record = self.feedback.append(
+            SolveRecord(
+                image_name=sample.path.name,
+                image_sha256=sample.sha256,
+                challenge_type=sample.challenge_type,
+                target_class=sample.target_class,
+                grid_rows=rows,
+                grid_cols=cols,
+                clicked_indices=sorted(clicked),
+                outcome=outcome,
+            )
+        )
+        if record.usable:
+            self._emit(
+                f"挑战通过，已记录 {rows * cols} 个图块的真值标注"
+                f"（{len(clicked)} 正 / {rows * cols - len(clicked)} 负）"
+            )
+        else:
+            self._emit(f"本轮结果={record.outcome}，已记录但不用于标注")
+        return record
 
     def _current_challenge_type(self) -> str:
         """读取当前 reload 的挑战类型，未知时按静态挑战处理。"""
